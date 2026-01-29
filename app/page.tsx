@@ -1,65 +1,122 @@
-import Image from "next/image";
+"use client";
+import React, { useState, useRef, useEffect } from "react";
+import Webcam from "react-webcam";
 
-export default function Home() {
+export default function AbsensiSanpio() {
+  const webcamRef = useRef<Webcam>(null);
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [pesan, setPesan] = useState("Klik tombol di bawah untuk mulai");
+
+  // 1. Fungsi Ambil Lokasi (Koordinat)
+  const ambilLokasi = () => {
+    setLoading(true);
+    setPesan("Sedang mengunci koordinat GPS...");
+    
+    if (!navigator.geolocation) {
+      alert("Browser kamu tidak mendukung GPS");
+      setLoading(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setPesan("Lokasi terkunci! Sekarang silakan scan wajah.");
+        setLoading(false);
+      },
+      (err) => {
+        alert("Gagal ambil lokasi. Pastikan GPS HP nyala.");
+        setLoading(false);
+      }
+    );
+  };
+
+  // 2. Fungsi Ambil Foto (Scan Wajah)
+  const ambilFoto = () => {
+    if (webcamRef.current) {
+      const image = webcamRef.current.getScreenshot();
+      setImgSrc(image);
+      setPesan("Absensi Berhasil! Data tersimpan lokal.");
+      
+      // Simulasi simpan ke memori HP
+      const dataAbsen = {
+        waktu: new Date().toISOString(),
+        lokasi: coords,
+        foto: image
+      };
+      console.log("Data Absen:", dataAbsen);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center p-4 font-sans">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden">
+        
+        {/* Header */}
+        <div className="bg-blue-700 p-6 text-white text-center">
+          <h1 className="text-xl font-bold tracking-tight">ABSENSI SANPIO</h1>
+          <p className="text-xs opacity-80 uppercase mt-1">Next.js Mobile Tracker</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="p-6 space-y-6">
+          {/* Layar Kamera / Preview Foto */}
+          <div className="relative aspect-square rounded-2xl overflow-hidden bg-slate-900 border-4 border-gray-100 shadow-inner">
+            {!imgSrc ? (
+              <Webcam
+                audio={false}
+                ref={webcamRef}
+                screenshotFormat="image/jpeg"
+                className="w-full h-full object-cover"
+                videoConstraints={{ facingMode: "user" }}
+              />
+            ) : (
+              <img src={imgSrc} className="w-full h-full object-cover" alt="Hasil Scan" />
+            )}
+          </div>
+
+          {/* Info Status & Koordinat */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-dashed border-slate-300">
+            <p className="text-xs text-slate-500 font-bold uppercase">Status:</p>
+            <p className="text-sm text-slate-700 mt-1 italic">{pesan}</p>
+            {coords && (
+              <div className="mt-2 text-[10px] text-blue-600 font-mono">
+                Lat: {coords.lat} | Lng: {coords.lng}
+              </div>
+            )}
+          </div>
+
+          {/* Tombol Aksi */}
+          <div className="space-y-3">
+            {!coords ? (
+              <button
+                onClick={ambilLokasi}
+                disabled={loading}
+                className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold active:scale-95 transition-all shadow-lg disabled:bg-gray-400"
+              >
+                {loading ? "MENCARI GPS..." : "1. CEK LOKASI"}
+              </button>
+            ) : !imgSrc ? (
+              <button
+                onClick={ambilFoto}
+                className="w-full bg-green-600 text-white py-4 rounded-2xl font-bold active:scale-95 transition-all shadow-lg animate-pulse"
+              >
+                2. SCAN WAJAH (ABSEN)
+              </button>
+            ) : (
+              <button
+                onClick={() => { setImgSrc(null); setCoords(null); setPesan("Siap Absen Kembali"); }}
+                className="w-full bg-slate-800 text-white py-4 rounded-2xl font-bold"
+              >
+                RESET / ABSEN ULANG
+              </button>
+            )}
+          </div>
         </div>
-      </main>
+      </div>
+
+      <p className="mt-6 text-gray-400 text-[10px]">© 2026 Informatika XI - Mejatika Project</p>
     </div>
   );
 }
