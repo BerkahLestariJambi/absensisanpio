@@ -1,38 +1,75 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("guru");
   const [gurus, setGurus] = useState([]);
   const [izins, setIzins] = useState([]);
   const [rekap, setRekap] = useState([]);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  
+  // Data User dari LocalStorage
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
 
   const API_URL = "https://backendabsen.mejatika.com/api";
 
+  // Fungsi Sinkronisasi Data dengan Header Auth
   const loadData = async () => {
+    const token = localStorage.getItem("auth_token");
+    if (!token) return router.push("/admin/login");
+
     try {
+      const headers = { 
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/json"
+      };
+
       const [resGuru, resIzin, resRekap] = await Promise.all([
-        fetch(`${API_URL}/admin/guru`),
-        fetch(`${API_URL}/admin/daftar-izin`),
-        fetch(`${API_URL}/admin/rekap-absensi`)
+        fetch(`${API_URL}/admin/guru`, { headers }),
+        fetch(`${API_URL}/admin/daftar-izin`, { headers }),
+        fetch(`${API_URL}/admin/rekap-absensi`, { headers })
       ]);
       
+      if (resGuru.status === 401) throw new Error("Unauthorized");
+
       setGurus(await resGuru.json());
       setIzins(await resIzin.json());
       setRekap(await resRekap.json());
     } catch (err) {
       console.error("Gagal sinkronisasi data.");
+      router.push("/admin/login");
     }
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    // Ambil info user saat komponen dimuat
+    const role = localStorage.getItem("user_role");
+    const name = localStorage.getItem("user_name");
+    
+    if (!role) {
+      router.push("/admin/login");
+    } else {
+      setUserRole(role);
+      setUserName(name);
+      loadData();
+    }
+  }, []);
 
-  // Fungsi Import Excel
+  const handleLogout = () => {
+    localStorage.clear();
+    router.push("/admin/login");
+  };
+
+  // Fungsi Import Excel (Hanya untuk Super Admin)
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (userRole !== "super_admin") return;
+
     if (!file) return Swal.fire("Pilih File", "Silakan pilih file Excel dulu.", "warning");
 
     const formData = new FormData();
@@ -42,6 +79,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch(`${API_URL}/admin/guru/import`, {
         method: "POST",
+        headers: { "Authorization": `Bearer ${localStorage.getItem("auth_token")}` },
         body: formData,
       });
 
@@ -50,7 +88,7 @@ export default function AdminDashboard() {
         setFile(null);
         loadData();
       } else {
-        Swal.fire("Gagal", "Format file tidak sesuai.", "error");
+        Swal.fire("Gagal", "Format file tidak sesuai atau akses ditolak.", "error");
       }
     } catch (err) {
       Swal.fire("Error", "Koneksi ke server terputus.", "error");
@@ -59,17 +97,23 @@ export default function AdminDashboard() {
     }
   };
 
-  // Fungsi Update Izin
+  // Fungsi Update Izin (Dibatasi di Backend)
   const updateStatusIzin = async (id: number, status: string) => {
     try {
       const res = await fetch(`${API_URL}/admin/izin/${id}/status`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("auth_token")}`
+        },
         body: JSON.stringify({ status }),
       });
       if (res.ok) {
         Swal.fire("Updated", `Status izin menjadi ${status}`, "success");
         loadData();
+      } else {
+        const errorData = await res.json();
+        Swal.fire("Ditolak", errorData.message || "Bukan wewenang Anda.", "error");
       }
     } catch (err) {
       Swal.fire("Gagal", "Gagal memperbarui status.", "error");
@@ -80,12 +124,17 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans">
       <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-800 tracking-tight">PANEL ADMIN SANPIO</h1>
-          <p className="text-slate-500 font-medium">Management & Monitoring Kehadiran</p>
+          <h1 className="text-3xl font-black text-slate-800 tracking-tight uppercase">Dashboard {userRole?.replace("_", " ")}</h1>
+          <p className="text-slate-500 font-medium italic text-sm">Welcome back, {userName}</p>
         </div>
-        <button onClick={loadData} className="bg-white border-2 border-slate-200 px-6 py-2 rounded-2xl font-bold text-slate-600 hover:bg-slate-100 transition shadow-sm">
-          🔄 REFRESH DATA
-        </button>
+        <div className="flex gap-3">
+          <button onClick={loadData} className="bg-white border-2 border-slate-200 px-6 py-2 rounded-2xl font-bold text-slate-600 hover:bg-slate-100 transition shadow-sm">
+            🔄 REFRESH
+          </button>
+          <button onClick={handleLogout} className="bg-red-50 text-red-600 border-2 border-red-100 px-6 py-2 rounded-2xl font-bold hover:bg-red-600 hover:text-white transition shadow-sm">
+            🚪 LOGOUT
+          </button>
+        </div>
       </header>
 
       {/* Navigasi Tab */}
@@ -107,27 +156,31 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* TAB 1: DATA GURU & IMPORT */}
+      {/* TAB 1: DATA GURU */}
       {activeTab === "guru" && (
         <div className="space-y-6 animate-in fade-in duration-500">
-          <div className="bg-white p-8 rounded-[32px] shadow-xl shadow-slate-200 border border-white">
-            <h3 className="font-black text-slate-800 text-lg mb-4 uppercase tracking-tight">Import Data Master</h3>
-            <form onSubmit={handleImport} className="flex flex-col md:flex-row gap-4">
-              <input 
-                type="file" 
-                accept=".xlsx, .xls"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="block w-full text-sm text-slate-500 file:mr-4 file:py-3 file:px-6 file:rounded-2xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition"
-              />
-              <button 
-                type="submit" 
-                disabled={loading}
-                className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-slate-300 transition-all active:scale-95"
-              >
-                {loading ? "PROCESSING..." : "UPLOAD EXCEL"}
-              </button>
-            </form>
-          </div>
+          
+          {/* HANYA MUNCUL UNTUK SUPER ADMIN */}
+          {userRole === "super_admin" && (
+            <div className="bg-white p-8 rounded-[32px] shadow-xl shadow-slate-200 border border-white">
+              <h3 className="font-black text-slate-800 text-lg mb-4 uppercase tracking-tight">Import Data Master (Admin Only)</h3>
+              <form onSubmit={handleImport} className="flex flex-col md:flex-row gap-4">
+                <input 
+                  type="file" 
+                  accept=".xlsx, .xls"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-3 file:px-6 file:rounded-2xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition cursor-pointer"
+                />
+                <button 
+                  type="submit" 
+                  disabled={loading}
+                  className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-slate-300 transition-all active:scale-95"
+                >
+                  {loading ? "PROCESSING..." : "UPLOAD EXCEL"}
+                </button>
+              </form>
+            </div>
+          )}
 
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200 border border-white overflow-hidden">
             <table className="w-full text-left">
@@ -135,7 +188,7 @@ export default function AdminDashboard() {
                 <tr>
                   <th className="p-6">Nama Lengkap</th>
                   <th className="p-6">NIP/NUPTK</th>
-                  <th className="p-6">Jabatan/Jenjang</th>
+                  <th className="p-6">Jenjang</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -143,7 +196,11 @@ export default function AdminDashboard() {
                   <tr key={g.id} className="hover:bg-blue-50/50 transition">
                     <td className="p-6 font-bold text-slate-700">{g.nama_lengkap}</td>
                     <td className="p-6 font-mono text-slate-500">{g.nip || g.nuptk || "—"}</td>
-                    <td className="p-6 text-slate-600 font-medium">{g.jenjang}</td>
+                    <td className="p-6">
+                        <span className={`px-3 py-1 rounded-lg text-[10px] font-black ${g.jenjang === 'SMA' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
+                            {g.jenjang}
+                        </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -152,7 +209,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* TAB 2: REKAP KEHADIRAN (FOTO & GPS) */}
+      {/* TAB 2: REKAP KEHADIRAN */}
       {activeTab === "rekap" && (
         <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200 border border-white overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
           <table className="w-full text-left">
@@ -168,31 +225,31 @@ export default function AdminDashboard() {
             <tbody className="divide-y divide-slate-100">
               {rekap.map((r: any) => (
                 <tr key={r.id} className="hover:bg-blue-50/50 transition">
-                  <td className="p-6">
-                    <div className="text-xs font-black text-slate-800">{new Date(r.created_at).toLocaleDateString()}</div>
-                    <div className="text-[10px] text-blue-600 font-bold uppercase">{new Date(r.created_at).toLocaleTimeString()}</div>
+                  <td className="p-6 text-xs">
+                    <div className="font-black text-slate-800">{new Date(r.created_at).toLocaleDateString()}</div>
+                    <div className="text-blue-600 font-bold uppercase">{new Date(r.created_at).toLocaleTimeString()}</div>
                   </td>
                   <td className="p-6 font-bold text-slate-700">{r.nama_lengkap}</td>
-                  <td className="p-4">
-                    <div className="flex justify-center">
-                      <img 
-                        src={`https://backendabsen.mejatika.com/storage/${r.foto_wajah}`} 
-                        className="w-14 h-14 object-cover rounded-2xl border-4 border-slate-50 shadow-md transform rotate-2"
-                        alt="Scan"
-                      />
-                    </div>
+                  <td className="p-4 text-center">
+                    <img 
+                      src={`https://backendabsen.mejatika.com/storage/${r.foto_wajah}`} 
+                      className="w-12 h-12 object-cover rounded-xl border-2 border-white shadow-sm mx-auto"
+                      alt="Face"
+                    />
                   </td>
                   <td className="p-6">
                     <a 
                       href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} 
                       target="_blank" 
-                      className="inline-flex items-center gap-2 text-[10px] font-black bg-blue-50 text-blue-700 px-4 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                      className="text-[10px] font-black bg-slate-100 text-slate-600 px-4 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
                     >
-                      📍 TRACK LOCATION
+                      📍 VIEW MAPS
                     </a>
                   </td>
                   <td className="p-6">
-                    <span className="text-[10px] bg-green-100 text-green-700 px-4 py-1.5 rounded-full font-black uppercase tracking-widest">PRESENCE</span>
+                    <span className={`text-[10px] px-4 py-1.5 rounded-full font-black uppercase tracking-widest ${r.status === 'Hadir' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {r.status}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -218,13 +275,13 @@ export default function AdminDashboard() {
                 <tr key={i.id} className="hover:bg-blue-50/50 transition">
                   <td className="p-6">
                     <div className="font-bold text-slate-800">{i.nama_lengkap}</div>
-                    <div className="text-[10px] text-blue-500 font-bold uppercase tracking-wider">{i.jenis}</div>
+                    <div className="text-[10px] text-blue-500 font-bold uppercase">{i.jenis} ({i.jenjang})</div>
                   </td>
-                  <td className="p-6 text-sm text-slate-500 font-medium italic">"{i.keterangan}"</td>
+                  <td className="p-6 text-sm text-slate-500 italic">"{i.keterangan}"</td>
                   <td className="p-6">
                     {i.bukti_dokumen ? (
-                      <a href={`https://backendabsen.mejatika.com/storage/${i.bukti_dokumen}`} target="_blank" className="text-blue-600 font-black text-xs underline decoration-2 underline-offset-4">VIEW FILE</a>
-                    ) : <span className="text-slate-300 text-xs">NO FILE</span>}
+                      <a href={`https://backendabsen.mejatika.com/storage/${i.bukti_dokumen}`} target="_blank" className="text-blue-600 font-black text-xs underline">VIEW FILE</a>
+                    ) : <span className="text-slate-300 text-xs font-bold">NO FILE</span>}
                   </td>
                   <td className="p-6">
                     <div className="flex justify-center gap-3">
