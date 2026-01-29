@@ -87,7 +87,7 @@ export default function HomeAbsensi() {
             </button>
 
             <button
-              onClick={() => router.push("/admin/dashboard")} // Arahkan ke folder admin/login
+              onClick={() => router.push("/admin/login")} // Arahkan ke folder admin/login
               className="w-full py-4 bg-white text-slate-700 border-2 border-slate-200 rounded-2xl font-bold hover:bg-slate-50 transition-all active:scale-95 flex items-center justify-center gap-3"
             >
               🔐 LOGIN ADMIN
