@@ -9,33 +9,41 @@ export default function HomeAbsensi() {
   const [view, setView] = useState<"menu" | "absen">("menu");
   const webcamRef = useRef<Webcam>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [pesan, setPesan] = useState("Menyiapkan...");
+  const [pesan, setPesan] = useState("⚡ Turbo Mode");
   const [jarakWajah, setJarakWajah] = useState<"pas" | "jauh" | "dekat" | "none">("none");
   const [isProcessing, setIsProcessing] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const router = useRouter();
 
-  // 1. LOAD MODEL DETEKSI (Sangat Ringan & Cepat)
+  // Konfigurasi Video Super Ringan
+  const videoConstraints = {
+    width: 320, // Resolusi rendah = AI deteksi jauh lebih cepat
+    height: 480,
+    facingMode: "user",
+    frameRate: 30
+  };
+
+  // 1. LOAD MODEL (Hanya detector paling dasar)
   useEffect(() => {
     const loadModels = async () => {
       try {
         const MODEL_URL = "/models";
+        // Hanya satu model agar tidak berat di memori
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
         setModelsLoaded(true);
-        setPesan("Sistem Siap");
       } catch (err) {
-        console.error("AI Error:", err);
         setPesan("Gagal Load AI");
       }
     };
     loadModels();
   }, []);
 
-  // 2. LOGIKA OTOMATIS: DETEKSI POSISI -> LANGSUNG CAPTURE
+  // 2. DETEKSI & CAPTURE KILAT
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
-      const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 128 });
+      // Input size diperkecil ke 128 untuk performa maksimal (trade-off akurasi sedikit)
+      const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.5 });
 
       interval = setInterval(async () => {
         if (webcamRef.current?.video?.readyState === 4) {
@@ -47,72 +55,56 @@ export default function HomeAbsensi() {
             setPesan("Mencari Wajah...");
           } else {
             const { width } = detection.box;
-            
-            if (width < 100) {
-              setJarakWajah("jauh");
-              setPesan("Dekatkan Wajah");
-            } else if (width > 280) {
-              setJarakWajah("dekat");
-              setPesan("Terlalu Dekat");
+            // Toleransi jarak diperlebar agar cepat "PAS"
+            if (width < 80) { 
+              setJarakWajah("jauh"); 
+              setPesan("Dekatkan");
+            } else if (width > 300) { 
+              setJarakWajah("dekat"); 
+              setPesan("Jauhkan");
             } else {
-              // POSISI PAS! LANGSUNG EKSEKUSI
               setJarakWajah("pas");
-              setPesan("Mengambil Foto...");
+              setPesan("⚡ CAPTURE!");
               setIsProcessing(true);
               clearInterval(interval);
-              
-              // Delay sedikit agar user tahu posisi sudah pas
-              setTimeout(() => {
-                handleInstantCapture();
-              }, 400);
+              handleInstantCapture();
             }
           }
         }
-      }, 100); 
+      }, 80); // Cek setiap 80ms (sangat responsif)
     }
     return () => clearInterval(interval);
-  }, [view, modelsLoaded, isProcessing, coords]);
+  }, [view, modelsLoaded, isProcessing]);
 
   const handleInstantCapture = () => {
-    const image = webcamRef.current?.getScreenshot();
+    // Kualitas dikurangi ke 0.3 agar file Base64 sangat kecil
+    const image = webcamRef.current?.getScreenshot({ quality: 0.3 });
     if (image && coords) {
       sendToServer(image, coords.lat, coords.lng);
-    } else {
-      setIsProcessing(false);
-      setPesan("Gagal Capture");
     }
   };
 
-  // 3. KIRIM KE SERVER (BACKEND)
+  // 3. KIRIM DATA KILAT
   const sendToServer = async (image: string, lat: number, lng: number) => {
-    setPesan("Mengirim Data...");
+    setPesan("🚀 Mengirim...");
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json", 
-          "Accept": "application/json" 
-        },
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({ image, lat, lng }),
       });
       
-      const data = await res.json();
       if (res.ok) {
-        await Swal.fire({ 
-          title: "Berhasil!", 
-          text: "Absensi Anda telah terkirim.", 
-          icon: "success", 
-          timer: 1500, 
-          showConfirmButton: false 
-        });
-        router.push("/dashboard-absensi"); 
+        // Langsung pindah halaman tanpa menunggu popup ditutup
+        router.push("/dashboard-absensi");
+        Swal.fire({ title: "Berhasil!", icon: "success", timer: 1000, showConfirmButton: false });
       } else {
-        throw new Error(data.message || "Gagal simpan di server");
+        throw new Error("Gagal");
       }
     } catch (e: any) {
       setIsProcessing(false);
       setJarakWajah("none");
-      Swal.fire("Gagal Simpan", e.message, "error");
+      Swal.fire("Gagal", "Cek Koneksi", "error");
     }
   };
 
@@ -122,107 +114,69 @@ export default function HomeAbsensi() {
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setView("absen");
       },
-      () => Swal.fire("GPS Mati", "Aktifkan lokasi untuk melanjutkan!", "error"),
-      { enableHighAccuracy: true }
+      () => Swal.fire("GPS Mati", "Aktifkan lokasi!", "error"),
+      { enableHighAccuracy: false } // False agar GPS mengunci lebih cepat
     );
   };
 
-  // --- TAMPILAN DASHBOARD AWAL ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
         <div className="w-full max-w-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
           <div className="w-20 h-20 bg-red-600 rounded-3xl mx-auto flex items-center justify-center shadow-xl mb-4">
-            <span className="text-white text-3xl font-black">S</span>
+            <span className="text-white text-3xl font-black italic">⚡</span>
           </div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase">Sanpio System</h1>
-          <p className="text-amber-800 font-bold text-[10px] tracking-widest mt-1 mb-8 italic">INSTANT CAPTURE</p>
-          <div className="space-y-4">
-            <button 
-              disabled={!modelsLoaded}
-              onClick={startAbsenFlow} 
-              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-300'} text-white rounded-2xl font-bold shadow-lg transition-all active:scale-95`}
-            >
-              {modelsLoaded ? "🚀 MULAI ABSEN" : "MEMUAT AI..."}
-            </button>
-            <button onClick={() => router.push("/admin/login")} className="w-full py-4 bg-white text-slate-700 border-2 border-amber-100 rounded-2xl font-bold hover:bg-amber-50 transition-all active:scale-95">
-              🔐 LOGIN ADMIN
-            </button>
-          </div>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none">Turbo Absen</h1>
+          <p className="text-amber-800 font-bold text-[10px] tracking-widest mt-2 mb-8 italic uppercase text-opacity-50 tracking-[0.2em]">Sanpio System</p>
+          <button 
+            disabled={!modelsLoaded}
+            onClick={startAbsenFlow} 
+            className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 shadow-red-200' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all active:scale-95`}
+          >
+            {modelsLoaded ? "MULAI" : "MEMUAT..."}
+          </button>
         </div>
       </div>
     );
   }
 
-  // --- TAMPILAN KAMERA ABSENSI ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative bg-batik overflow-hidden">
-      <button 
-        onClick={() => { setView("menu"); setIsProcessing(false); }} 
-        className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-xs font-bold shadow-lg active:scale-90"
-      >
-        ← BATAL
-      </button>
-
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
         <Webcam 
           ref={webcamRef} 
           audio={false} 
           screenshotFormat="image/jpeg" 
-          screenshotQuality={0.5} 
-          videoConstraints={{ facingMode: "user" }} 
+          videoConstraints={videoConstraints} 
           className="w-full h-full object-cover" 
         />
         
-        {/* Frame Scanner Visual */}
+        {/* Frame UI */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-            <div className={`relative w-72 h-72 transition-all duration-500 ${jarakWajah === 'pas' ? 'scale-105' : 'scale-100'}`}>
-                <div className={`absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 rounded-tl-xl ${jarakWajah === 'pas' ? 'border-green-500' : 'border-red-600'}`}></div>
-                <div className={`absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 rounded-tr-xl ${jarakWajah === 'pas' ? 'border-green-500' : 'border-red-600'}`}></div>
-                <div className={`absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 rounded-bl-xl ${jarakWajah === 'pas' ? 'border-green-500' : 'border-red-600'}`}></div>
-                <div className={`absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 rounded-br-xl ${jarakWajah === 'pas' ? 'border-green-500' : 'border-red-600'}`}></div>
-                <div className={`absolute w-full h-[2px] animate-scan-red ${jarakWajah === 'pas' ? 'bg-green-400' : 'bg-red-500'}`}></div>
+            <div className={`relative w-72 h-72 border-2 rounded-full transition-all duration-300 ${jarakWajah === 'pas' ? 'border-green-400 scale-110' : 'border-white/30'}`}>
+                <div className={`absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin-slow ${jarakWajah === 'pas' ? 'opacity-0' : 'opacity-100'}`}></div>
             </div>
         </div>
 
-        {/* INFO KOORDINAT GPS (BAGIAN BAWAH FRAME) */}
-        <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
-            <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 p-4 shadow-2xl">
-                <div className="flex justify-between items-center mb-3">
-                    <div className="space-y-1">
-                        <p className="text-[9px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
-                        <p className="text-sm font-mono text-white font-bold leading-none">
-                            {coords ? coords.lat.toFixed(7) : "Mencari..."}
-                        </p>
-                    </div>
-                    <div className="w-[1px] h-8 bg-white/20"></div>
-                    <div className="space-y-1 text-right">
-                        <p className="text-[9px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
-                        <p className="text-sm font-mono text-white font-bold leading-none">
-                            {coords ? coords.lng.toFixed(7) : "Mencari..."}
-                        </p>
-                    </div>
+        {/* GPS Info & Status */}
+        <div className="absolute bottom-0 w-full z-30 bg-black/80 backdrop-blur-md p-6 border-t border-white/10">
+            <div className="flex justify-between items-center text-white/50 text-[8px] font-mono mb-4 tracking-widest uppercase">
+                <span>Lat: {coords?.lat.toFixed(5)}</span>
+                <span>Lng: {coords?.lng.toFixed(5)}</span>
+            </div>
+            <div className="flex items-center gap-3">
+                <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div className={`h-full bg-red-600 transition-all ${jarakWajah === "pas" ? "w-full" : "w-1/4"}`}></div>
                 </div>
-                
-                <div className="flex items-center gap-3 border-t border-white/10 pt-3">
-                    <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full bg-red-600 transition-all duration-700 
-                          ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}
-                        ></div>
-                    </div>
-                    <span className="text-[10px] text-amber-200 font-black uppercase italic tracking-tighter whitespace-nowrap">
-                      {pesan}
-                    </span>
-                </div>
+                <span className="text-[10px] text-white font-black uppercase italic tracking-widest">{pesan}</span>
             </div>
         </div>
       </div>
 
       <style jsx global>{`
         .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
-        @keyframes scan-red { 0% { top: 5%; opacity: 0.2; } 50% { opacity: 1; } 100% { top: 95%; opacity: 0.2; } }
-        .animate-scan-red { position: absolute; width: 100%; animation: scan-red 2.5s infinite ease-in-out; }
+        .animate-spin-slow { animation: spin 3s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
