@@ -5,7 +5,6 @@ import * as faceapi from "face-api.js";
 import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
 
-// Interface data guru dari backend
 interface Guru {
   id: number;
   foto_referensi: string;
@@ -25,12 +24,11 @@ export default function HomeAbsensi() {
   const schoolCoords = { lat: -6.2000, lng: 106.8000 };
   const maxRadius = 50;
 
-  // 1. LOAD MODELS & REFERENSI GURU (Optimized)
+  // 1. LOAD MODELS & REFERENSI GURU (Optimized & CORS Fixed)
   useEffect(() => {
     const loadEverything = async () => {
       try {
         const MODEL_URL = "/models";
-        // Load model secara paralel agar cepat
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
@@ -43,14 +41,28 @@ export default function HomeAbsensi() {
           const labeledDescriptors = await Promise.all(
             gurus.map(async (g) => {
               try {
-                const img = await faceapi.fetchImage(`https://backendabsen.mejatika.com/storage/${g.foto_referensi}`);
+                // Perbaikan CORS: Menggunakan Image object dengan crossOrigin
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.src = `https://backendabsen.mejatika.com/storage/${g.foto_referensi}`;
+                
+                await new Promise((resolve, reject) => {
+                  img.onload = resolve;
+                  img.onerror = reject; // Tangani jika 404
+                });
+
                 const detection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
                   .withFaceLandmarks()
                   .withFaceDescriptor();
+
                 return detection ? new faceapi.LabeledFaceDescriptors(g.id.toString(), [detection.descriptor]) : null;
-              } catch (e) { return null; }
+              } catch (e) {
+                console.warn(`Gagal memuat foto guru ID: ${g.id}`);
+                return null; 
+              }
             })
           );
+          
           const validDescriptors = labeledDescriptors.filter((d): d is faceapi.LabeledFaceDescriptors => d !== null);
           if (validDescriptors.length > 0) {
             setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
@@ -65,15 +77,13 @@ export default function HomeAbsensi() {
     loadEverything();
   }, []);
 
-  // 2. LOGIKA DETEKSI WAJAH (Speed Optimized)
+  // 2. LOGIKA DETEKSI WAJAH
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
       interval = setInterval(async () => {
         if (webcamRef.current && webcamRef.current.video?.readyState === 4) {
           const video = webcamRef.current.video;
-          
-          // Step 1: Deteksi jarak (Ringan)
           const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
 
           if (!detection) {
@@ -84,8 +94,6 @@ export default function HomeAbsensi() {
             else if (width > 260) setJarakWajah("dekat");
             else {
               setJarakWajah("pas");
-              
-              // Step 2: Recognition hanya jika jarak sudah PAS (Sangat Cepat)
               if (coords && faceMatcher && !isProcessing) {
                 const fullDetection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
                   .withFaceLandmarks()
@@ -104,7 +112,7 @@ export default function HomeAbsensi() {
             }
           }
         }
-      }, 400); // Frame rate lebih rapat agar responsif
+      }, 400);
     }
     return () => clearInterval(interval);
   }, [view, modelsLoaded, coords, isProcessing, faceMatcher]);
@@ -118,7 +126,7 @@ export default function HomeAbsensi() {
     }, 800);
   };
 
-  // 3. LOGIKA GEOLOCATION (Radius Check)
+  // 3. GEOLOCATION
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3;
     const φ1 = (lat1 * Math.PI) / 180;
@@ -166,7 +174,6 @@ export default function HomeAbsensi() {
     }
   };
 
-  // UI MENU
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -177,9 +184,9 @@ export default function HomeAbsensi() {
           <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase">Sanpio System</h1>
           <p className="text-amber-800 font-bold text-[10px] tracking-widest mt-1 mb-8 italic">PANCASILA & BUDAYA</p>
           <div className="space-y-4">
-            <button 
+            <button 
               disabled={!modelsLoaded}
-              onClick={() => { setView("absen"); getInitialLocation(); }} 
+              onClick={() => { setView("absen"); getInitialLocation(); }} 
               className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-300'} text-white rounded-2xl font-bold shadow-lg transition-all active:scale-95`}
             >
               {modelsLoaded ? "🚀 MULAI ABSENSI" : "MENYIAPKAN AI..."}
@@ -193,18 +200,15 @@ export default function HomeAbsensi() {
     );
   }
 
-  // UI KAMERA ABSENSI
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative font-sans bg-batik overflow-hidden">
       <button onClick={() => { setView("menu"); setJarakWajah("none"); setIsProcessing(false); }} className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-xs font-bold shadow-lg active:scale-90">
         ← BATAL
       </button>
 
-      {/* FRAME UTAMA */}
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
         <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "user" }} className="w-full h-full object-cover grayscale-[0.1]" />
         
-        {/* FRAME SCANNER ANIMASI */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
             <div className={`relative w-72 h-72 transition-all duration-500 ${jarakWajah === 'pas' ? 'scale-105' : 'scale-100'}`}>
                 <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-red-600 rounded-tl-xl"></div>
@@ -215,7 +219,6 @@ export default function HomeAbsensi() {
             </div>
         </div>
 
-        {/* STATUS BAR (ATAS) */}
         <div className="absolute inset-0 z-30 flex flex-col items-center pointer-events-none">
           <div className="mt-8 bg-white/90 backdrop-blur-md border border-amber-200 px-6 py-2 rounded-2xl shadow-xl">
             <p className="text-red-600 font-black text-[11px] tracking-widest uppercase">
@@ -227,7 +230,6 @@ export default function HomeAbsensi() {
           </div>
         </div>
 
-        {/* KOORDINAT BOX (MENEMPEL DI BAWAH FRAME) */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
             <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 p-4">
                 <div className="flex justify-between items-center mb-3">
