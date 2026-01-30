@@ -78,13 +78,12 @@ export default function HomeAbsensi() {
               
               const image = webcamRef.current?.getScreenshot();
               
-              if (image && coords && coords.lat !== 0 && coords.lng !== 0) {
-                sendToServer(image, coords.lat, coords.lng);
+              // Kirim langsung tanpa validasi koordinat
+              if (image) {
+                sendToServer(image, coords?.lat || 0, coords?.lng || 0);
               } else {
                 setIsProcessing(false);
-                setPesan("GPS Belum Siap...");
-                Swal.fire("GPS Belum Siap", "Tunggu koordinat valid.", "warning");
-                setView("menu");
+                setPesan("Gagal ambil gambar.");
               }
             }
           }
@@ -143,18 +142,18 @@ export default function HomeAbsensi() {
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        if (pos.coords.latitude !== 0 && pos.coords.longitude !== 0) {
-          setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          setView("absen");
-        } else {
-          Swal.fire("GPS Belum Siap", "Tunggu koordinat valid.", "warning");
-        }
+        // langsung simpan koordinat apa pun hasilnya
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setView("absen");
       },
       (err) => {
         let msg = "Aktifkan GPS!";
         if (err.code === 1) msg = "Izin lokasi ditolak!";
         if (err.code === 3) msg = "Waktu pencarian GPS habis!";
-        Swal.fire("GPS Mati", msg, "error");
+        Swal.fire("GPS Error", msg, "error");
+        // tetap lanjut ke kamera meskipun error
+        setCoords({ lat: 0, lng: 0 });
+        setView("absen");
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
@@ -202,12 +201,12 @@ export default function HomeAbsensi() {
         ← BATAL
       </button>
 
-        <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
+            <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
         <Webcam 
           ref={webcamRef} 
           audio={false} 
           screenshotFormat="image/jpeg" 
-          screenshotQuality={0.5} // kualitas cukup jelas untuk wajah
+          screenshotQuality={0.5} 
           videoConstraints={videoConstraints} 
           className="w-full h-full object-cover" 
         />
