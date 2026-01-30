@@ -20,153 +20,188 @@ export default function TambahPegawai() {
     nuptk: "",
     jabatan: "",
     jenjang: "SMP",
-    foto_referensi: "" // Field tambahan untuk biometrik
+    foto_referensi: ""
   });
 
-  // 1. Load Face API Models dari /public/models
+  // 1. Load Face API Models - Pastikan folder /public/models sudah ada file-filenya
   useEffect(() => {
     const loadModels = async () => {
       try {
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
-          faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
-          faceapi.nets.faceRecognitionNet.loadFromUri("/models"),
-        ]);
+        // Gunakan path absolut yang benar
+        const MODEL_URL = "/models"; 
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        
+        console.log("Models Loaded Successfully");
         setIsModelLoaded(true);
       } catch (err) {
-        console.error("Gagal load model face-api", err);
+        console.error("Gagal load model face-api:", err);
+        // Tetap set true agar tombol tidak terkunci jika model gagal (opsional untuk debug)
+        // setIsModelLoaded(true); 
       }
     };
     loadModels();
   }, []);
 
-  // 2. Akses Kamera
   const startCamera = async () => {
     setCameraActive(true);
     setCapturedImage(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
     } catch (err) {
-      Swal.fire("Kamera Error", "Gagal mengakses kamera", "error");
+      console.error(err);
+      Swal.fire("Kamera Error", "Pastikan izin kamera diaktifkan", "error");
+      setCameraActive(false);
     }
   };
 
-  // 3. Ambil Foto & Validasi Wajah
   const capturePhoto = async () => {
     if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      // Deteksi apakah ada wajah sebelum capture
-      const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
-      
-      if (!detection) {
-        return Swal.fire("Wajah Tidak Terdeteksi", "Pastikan wajah terlihat jelas di kamera", "warning");
-      }
+      try {
+        // Tampilkan loading sebentar saat proses deteksi
+        const detection = await faceapi.detectSingleFace(
+          videoRef.current, 
+          new faceapi.TinyFaceDetectorOptions()
+        );
+        
+        if (!detection) {
+          return Swal.fire("Wajah Tidak Terdeteksi", "Posisikan wajah tepat di depan kamera", "warning");
+        }
 
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d")?.drawImage(video, 0, 0);
-      
-      const base64Image = canvas.toDataURL("image/jpeg");
-      setCapturedImage(base64Image);
-      setFormData({ ...formData, foto_referensi: base64Image });
-      
-      // Matikan kamera
-      const stream = video.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      setCameraActive(false);
+        const canvas = canvasRef.current;
+        canvas.width = videoRef.current.videoWidth;
+        canvas.height = videoRef.current.videoHeight;
+        canvas.getContext("2d")?.drawImage(videoRef.current, 0, 0);
+        
+        const base64Image = canvas.toDataURL("image/jpeg");
+        setCapturedImage(base64Image);
+        setFormData(prev => ({ ...prev, foto_referensi: base64Image }));
+        
+        // Stop Kamera
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        setCameraActive(false);
+      } catch (error) {
+        console.error("Capture error:", error);
+      }
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!capturedImage) return Swal.fire("Foto Belum Ada", "Rekam biometrik wajah pegawai dulu", "warning");
+    console.log("Submit ditekan..."); // Untuk debug
+
+    if (!formData.foto_referensi) {
+      return Swal.fire("Foto Belum Ada", "Harap ambil foto biometrik terlebih dahulu", "warning");
+    }
 
     setLoading(true);
     try {
-      const res = await fetch("https://backendabsen.mejatika.com/api/admin/guru", {
+      const token = localStorage.getItem("auth_token");
+      
+      const res = await fetch("https://backendabsen.mejatika.com/api/admin/guru/manual", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem("auth_token")}` 
+          "Accept": "application/json",
+          "Authorization": `Bearer ${token}` 
         },
         body: JSON.stringify(formData),
       });
 
+      const result = await res.json();
+      console.log("Server Response:", result);
+
       if (res.ok) {
-        Swal.fire("Berhasil", "Pegawai & Biometrik terdaftar!", "success");
+        await Swal.fire("Berhasil", "Pegawai & Biometrik terdaftar!", "success");
         router.push("/admin/dashboard");
+      } else {
+        throw new Error(result.message || "Gagal menyimpan ke server");
       }
-    } catch (error) {
-      Swal.fire("Error", "Gagal menghubungi server", "error");
+    } catch (error: any) {
+      console.error("Submit error:", error);
+      Swal.fire("Gagal", error.message, "error");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#fdf5e6] bg-batik p-6">
+    <div className="min-h-screen bg-[#fdf5e6] p-6">
       <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
         
-        {/* Kolom 1: Form Data */}
-        <div className="bg-white rounded-[30px] shadow-xl overflow-hidden h-fit">
-          <div className="bg-slate-800 p-6 text-white uppercase font-black text-center tracking-widest">Data Pegawai</div>
+        {/* Form Data */}
+        <div className="bg-white rounded-[30px] shadow-xl overflow-hidden">
+          <div className="bg-slate-800 p-6 text-white uppercase font-black text-center">Data Pegawai</div>
           <form onSubmit={handleSubmit} className="p-8 space-y-4">
-            <input required placeholder="Nama Lengkap" className="w-full p-4 bg-slate-50 rounded-2xl border outline-none focus:ring-2 focus:ring-red-500 font-bold" onChange={(e) => setFormData({...formData, nama_lengkap: e.target.value})} />
+            <input required placeholder="Nama Lengkap" className="w-full p-4 bg-slate-50 rounded-2xl border" 
+              onChange={(e) => setFormData({...formData, nama_lengkap: e.target.value})} />
+            
             <div className="grid grid-cols-2 gap-4">
-              <input placeholder="NIP" className="p-4 bg-slate-50 rounded-2xl border outline-none focus:ring-2 focus:ring-red-500 font-mono" onChange={(e) => setFormData({...formData, nip: e.target.value})} />
-              <input placeholder="NUPTK" className="p-4 bg-slate-50 rounded-2xl border outline-none focus:ring-2 focus:ring-red-500 font-mono" onChange={(e) => setFormData({...formData, nuptk: e.target.value})} />
+              <input placeholder="NIP" className="p-4 bg-slate-50 rounded-2xl border" 
+                onChange={(e) => setFormData({...formData, nip: e.target.value})} />
+              <input placeholder="NUPTK" className="p-4 bg-slate-50 rounded-2xl border" 
+                onChange={(e) => setFormData({...formData, nuptk: e.target.value})} />
             </div>
-            <select required className="w-full p-4 bg-slate-50 rounded-2xl border outline-none focus:ring-2 focus:ring-red-500 font-bold" onChange={(e) => setFormData({...formData, jenjang: e.target.value})}>
+
+            <select required className="w-full p-4 bg-slate-50 rounded-2xl border" 
+              onChange={(e) => setFormData({...formData, jenjang: e.target.value})}>
               <option value="SMP">SMP</option>
               <option value="SMA">SMA</option>
             </select>
-            <input required placeholder="Jabatan" className="w-full p-4 bg-slate-50 rounded-2xl border outline-none focus:ring-2 focus:ring-red-500 font-bold" onChange={(e) => setFormData({...formData, jabatan: e.target.value})} />
+
+            <input required placeholder="Jabatan" className="w-full p-4 bg-slate-50 rounded-2xl border" 
+              onChange={(e) => setFormData({...formData, jabatan: e.target.value})} />
             
-            <button type="submit" disabled={loading || !isModelLoaded} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black tracking-widest hover:bg-red-700 shadow-lg transition-all">
-              {loading ? "PROSES..." : "💾 SIMPAN LENGKAP"}
+            {/* Indikator Model */}
+            {!isModelLoaded && <p className="text-xs text-orange-500 animate-pulse">⏳ Memuat AI Kamera (Face-API)...</p>}
+
+            <button 
+              type="submit" 
+              disabled={loading} 
+              className={`w-full py-4 rounded-2xl font-black text-white shadow-lg transition-all ${
+                loading ? "bg-slate-400" : "bg-red-600 hover:bg-red-700 active:scale-95"
+              }`}
+            >
+              {loading ? "SEDANG MENGIRIM..." : "💾 SIMPAN LENGKAP"}
             </button>
           </form>
         </div>
 
-        {/* Kolom 2: Biometrik */}
-        <div className="bg-white rounded-[30px] shadow-xl overflow-hidden flex flex-col items-center p-8 border-2 border-dashed border-slate-200">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-[0.3em] mb-6">Rekam Biometrik</h3>
+        {/* Biometrik */}
+        <div className="bg-white rounded-[30px] shadow-xl p-8 flex flex-col items-center border-2 border-dashed border-slate-200">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6">Rekam Biometrik</h3>
           
-          <div className="relative w-full aspect-square bg-slate-900 rounded-[40px] overflow-hidden shadow-inner border-8 border-white">
+          <div className="relative w-full aspect-square bg-slate-900 rounded-[40px] overflow-hidden border-8 border-white shadow-inner">
             {cameraActive ? (
               <video ref={videoRef} autoPlay muted className="w-full h-full object-cover -scale-x-100" />
             ) : capturedImage ? (
               <img src={capturedImage} className="w-full h-full object-cover" alt="Captured" />
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-slate-500 p-10 text-center">
-                <span className="text-5xl mb-4">👤</span>
-                <p className="text-xs font-bold uppercase leading-relaxed">Kamera Belum Aktif</p>
+              <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                <span className="text-5xl mb-2">👤</span>
+                <p className="text-[10px] font-bold uppercase">Kamera Belum Aktif</p>
               </div>
             )}
             <canvas ref={canvasRef} className="hidden" />
           </div>
 
-          <div className="mt-8 w-full">
+          <div className="mt-8 w-full space-y-3">
             {!cameraActive ? (
-              <button onClick={startCamera} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs tracking-[0.2em] shadow-lg shadow-blue-100 uppercase transition-all active:scale-95">
-                📷 {capturedImage ? "ULANGI AMBIL FOTO" : "AKTIFKAN KAMERA"}
+              <button type="button" onClick={startCamera} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase shadow-md">
+                📷 {capturedImage ? "ULANGI FOTO" : "AKTIFKAN KAMERA"}
               </button>
             ) : (
-              <button onClick={capturePhoto} className="w-full py-4 bg-green-600 text-white rounded-2xl font-black text-xs tracking-[0.2em] shadow-lg shadow-green-100 uppercase transition-all active:scale-95">
+              <button type="button" onClick={capturePhoto} className="w-full py-4 bg-green-600 text-white rounded-2xl font-black text-xs uppercase shadow-md">
                 🎯 AMBIL SAMPEL WAJAH
               </button>
             )}
-            <p className="text-[10px] text-slate-400 font-medium text-center mt-4 italic">
-              *Pastikan pencahayaan cukup dan wajah tidak tertutup masker/kacamata hitam.
-            </p>
           </div>
         </div>
-
       </div>
     </div>
   );
