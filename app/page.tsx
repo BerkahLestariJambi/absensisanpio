@@ -21,7 +21,7 @@ export default function HomeAbsensi() {
     facingMode: "user" as const,
   };
 
-  // 1. LOAD MODEL AI
+  // 1. LOAD MODEL AI (Hanya untuk validasi kehadiran fisik)
   useEffect(() => {
     const loadModels = async () => {
       try {
@@ -30,25 +30,12 @@ export default function HomeAbsensi() {
         setModelsLoaded(true);
       } catch (err) {
         setPesan("Gagal Load AI");
-        console.error("AI Load Error:", err);
       }
     };
     loadModels();
   }, []);
 
-  // 2. GPS WATCH agar selalu update
-  useEffect(() => {
-    if (view === "absen") {
-      const watchId = navigator.geolocation.watchPosition(
-        (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => console.error("GPS Error:", err),
-        { enableHighAccuracy: true }
-      );
-      return () => navigator.geolocation.clearWatch(watchId);
-    }
-  }, [view]);
-
-  // 3. DETEKSI WAJAH + CAPTURE
+  // 2. DETEKSI WAJAH & TRIGGER KIRIM
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
@@ -72,18 +59,18 @@ export default function HomeAbsensi() {
               setPesan("Terlalu Dekat");
             } else {
               setJarakWajah("pas");
-              setPesan("⚡ CAPTURE!");
+              setPesan("⚡ TERDETEKSI!");
               setIsProcessing(true);
               clearInterval(interval);
               
-              const image = webcamRef.current?.getScreenshot();
-              
-              // Kirim langsung tanpa validasi koordinat
-              if (image) {
-                sendToServer(image, coords?.lat || 0, coords?.lng || 0);
+              // Verifikasi Koordinat sebelum kirim
+              if (coords && coords.lat !== 0) {
+                sendToServer(coords.lat, coords.lng);
               } else {
                 setIsProcessing(false);
-                setPesan("Gagal ambil gambar.");
+                setPesan("GPS Belum Siap");
+                Swal.fire("GPS Lemah", "Tunggu koordinat muncul di layar", "warning");
+                setView("menu");
               }
             }
           }
@@ -93,73 +80,51 @@ export default function HomeAbsensi() {
     return () => clearInterval(interval);
   }, [view, modelsLoaded, isProcessing, coords]);
 
-  // 4. KIRIM DATA KE BACKEND
-  const sendToServer = async (image: string, lat: number, lng: number) => {
+  // 3. KIRIM DATA TEKS SAJA (Ringan & Cepat)
+  const sendToServer = async (lat: number, lng: number) => {
     setPesan("🚀 Mengirim...");
     try {
-      const base64Image = image.split(",")[1]; // buang prefix data:image/jpeg;base64,
-
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json", 
           "Accept": "application/json" 
         },
-        body: JSON.stringify({ image: base64Image, lat, lng }),
+        body: JSON.stringify({ 
+          lat: lat, 
+          lng: lng,
+          // image: null // Kita tidak mengirim image agar tidak berat
+        }),
       });
-
-      let responseData;
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        responseData = await res.json();
-      } else {
-        responseData = await res.text();
-      }
+      
+      const responseData = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        Swal.fire({ title: "Berhasil!", text: "Absensi Anda telah tercatat.", icon: "success", timer: 1500, showConfirmButton: false });
+        Swal.fire({ title: "Berhasil!", text: "Absen tercatat tanpa upload foto.", icon: "success", timer: 1500, showConfirmButton: false });
         router.push("/dashboard-absensi");
       } else {
-        throw new Error(responseData.message || `Server Error: ${res.status}`);
+        throw new Error(responseData.message || "Ditolak oleh sistem");
       }
     } catch (e: any) {
       setIsProcessing(false);
       setJarakWajah("none");
-      const errorMsg = e.message === "Failed to fetch" 
-        ? "Gagal terhubung ke server. Periksa internet atau SSL domain." 
-        : e.message;
-      Swal.fire("Gagal Kirim", errorMsg, "error");
-      setPesan("Gagal Kirim");
+      Swal.fire("Gagal", e.message, "error");
+      setPesan("Gagal Simpan");
     }
   };
 
-  // 5. FLOW MULAI (GPS lock dulu)
   const startAbsenFlow = () => {
     setPesan("🛰️ Mencari Satelit...");
-    if (!navigator.geolocation) {
-      return Swal.fire("Error", "Browser tidak mendukung lokasi.", "error");
-    }
-
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        // langsung simpan koordinat apa pun hasilnya
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setView("absen");
       },
-      (err) => {
-        let msg = "Aktifkan GPS!";
-        if (err.code === 1) msg = "Izin lokasi ditolak!";
-        if (err.code === 3) msg = "Waktu pencarian GPS habis!";
-        Swal.fire("GPS Error", msg, "error");
-        // tetap lanjut ke kamera meskipun error
-        setCoords({ lat: 0, lng: 0 });
-        setView("absen");
-      },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      (err) => Swal.fire("GPS Mati", "Aktifkan lokasi di pengaturan HP", "error"),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
-  // --- UI MENU ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -174,7 +139,7 @@ export default function HomeAbsensi() {
             <button 
               disabled={!modelsLoaded}
               onClick={startAbsenFlow} 
-              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700 active:scale-95 shadow-red-200' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
+              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700 active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
             >
               {modelsLoaded ? "🚀 MULAI ABSEN" : "MEMUAT AI..."}
             </button>
@@ -191,66 +156,51 @@ export default function HomeAbsensi() {
     );
   }
 
-  // --- UI KAMERA ABSENSI ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative bg-batik overflow-hidden">
       <button 
         onClick={() => { setView("menu"); setIsProcessing(false); }} 
-        className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg hover:bg-red-700 transition-colors"
+        className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg"
       >
         ← BATAL
       </button>
 
-            <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
+      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
         <Webcam 
           ref={webcamRef} 
           audio={false} 
           screenshotFormat="image/jpeg" 
-          screenshotQuality={0.5} 
           videoConstraints={videoConstraints} 
           className="w-full h-full object-cover" 
         />
         
-        {/* Scanner Overlay */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-          <div className={`relative w-64 h-64 border-2 rounded-full transition-all duration-300 
-            ${jarakWajah === 'pas' ? 'border-green-400 scale-110 shadow-[0_0_20px_rgba(74,222,128,0.5)]' : 'border-white/20'}`}>
-            <div className={`absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin-slow 
-              ${jarakWajah === 'pas' ? 'opacity-0' : 'opacity-100'}`}></div>
-          </div>
+            <div className={`relative w-64 h-64 border-2 rounded-full transition-all duration-300 ${jarakWajah === 'pas' ? 'border-green-400 scale-110' : 'border-white/20'}`}>
+                <div className={`absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin-slow ${jarakWajah === 'pas' ? 'opacity-0' : 'opacity-100'}`}></div>
+            </div>
         </div>
 
-        {/* Info Layer */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
-            <div className="flex justify-between items-center mb-3">
-              <div className="space-y-1">
-                <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
-                <p className="text-[12px] font-mono text-white font-bold">
-                  {coords ? coords.lat.toFixed(7) : "Searching..."}
-                </p>
-              </div>
-              <div className="w-[1px] h-6 bg-white/20"></div>
-              <div className="space-y-1 text-right">
-                <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
-                <p className="text-[12px] font-mono text-white font-bold">
-                  {coords ? coords.lng.toFixed(7) : "Searching..."}
-                </p>
-              </div>
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
+                <div className="flex justify-between items-center mb-3">
+                    <div className="space-y-1">
+                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
+                        <p className="text-[12px] font-mono text-white font-bold">{coords ? coords.lat.toFixed(7) : "Searching..."}</p>
+                    </div>
+                    <div className="w-[1px] h-6 bg-white/20"></div>
+                    <div className="space-y-1 text-right">
+                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
+                        <p className="text-[12px] font-mono text-white font-bold">{coords ? coords.lng.toFixed(7) : "Searching..."}</p>
+                    </div>
+                </div>
+                
+                <div className="flex items-center gap-3 border-t border-white/10 pt-3">
+                    <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div className={`h-full bg-red-600 transition-all duration-700 ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}></div>
+                    </div>
+                    <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest">{pesan}</span>
+                </div>
             </div>
-            
-            <div className="flex items-center gap-3 border-t border-white/10 pt-3">
-              <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full bg-red-600 transition-all duration-700 
-                  ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}
-                ></div>
-              </div>
-              <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest">
-                {pesan}
-              </span>
-            </div>
-          </div>
         </div>
       </div>
 
