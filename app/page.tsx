@@ -2,34 +2,56 @@
 import React, { useState, useRef, useEffect } from "react";
 import Webcam from "react-webcam";
 import Swal from "sweetalert2";
-import { useRouter } from "next/navigation"; // Jika pakai App Router Next.js
+import { useRouter } from "next/navigation";
 
 export default function HomeAbsensi() {
-  const [view, setView] = useState<"menu" | "absen">("menu"); // State untuk ganti tampilan
+  const [view, setView] = useState<"menu" | "absen">("menu");
   const webcamRef = useRef<Webcam>(null);
-  const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [pesan, setPesan] = useState("Menyiapkan sistem...");
+  const [isProcessing, setIsProcessing] = useState(false);
   const router = useRouter();
 
-  // Fungsi ambil lokasi (dipindahkan agar bisa dipanggil saat tombol absen diklik)
+  // Konfigurasi Radius Sekolah (Contoh: -6.2000, 106.8000)
+  const schoolCoords = { lat: -6.2000, lng: 106.8000 };
+  const maxRadius = 50; // dalam meter
+
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371e3;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  };
+
   const getInitialLocation = () => {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        const distance = calculateDistance(pos.coords.latitude, pos.coords.longitude, schoolCoords.lat, schoolCoords.lng);
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setPesan("Lokasi terkunci! Silakan scan wajah.");
+
+        if (distance <= maxRadius) {
+          setPesan("Wajah terdeteksi! Tahan posisi...");
+          // Auto capture setelah 3 detik jika posisi benar
+          setTimeout(() => ambilFotoOtomatis(pos.coords.latitude, pos.coords.longitude), 3000);
+        } else {
+          setPesan(`Di luar radius! Jarak: ${Math.round(distance)}m`);
+          Swal.fire("Gagal", "Anda berada di luar radius sekolah.", "error");
+        }
       },
       (err) => {
-        setPesan("Gagal deteksi lokasi. Pastikan GPS aktif.");
+        setPesan("Gagal deteksi lokasi.");
         Swal.fire("GPS Mati", "Harap aktifkan GPS Anda!", "error");
-      }
+      },
+      { enableHighAccuracy: true }
     );
   };
 
   const mulaiAbsen = () => {
     setView("absen");
     const hasPermission = localStorage.getItem("absen_permission");
-
     if (!hasPermission) {
       Swal.fire({
         title: "Izin Akses",
@@ -48,24 +70,35 @@ export default function HomeAbsensi() {
     }
   };
 
-  const ambilFoto = () => {
-    if (webcamRef.current) {
+  const ambilFotoOtomatis = async (lat: number, lng: number) => {
+    if (webcamRef.current && !isProcessing) {
+      setIsProcessing(true);
       const image = webcamRef.current.getScreenshot();
-      setImgSrc(image);
-      
-      Swal.fire({
-        title: "Berhasil!",
-        text: "Data absensi dan lokasi Anda telah terekam.",
-        icon: "success",
-        timer: 2000,
-        showConfirmButton: false
-      });
-      
-      setPesan("Absensi Berhasil Terkirim!");
+
+      try {
+        const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image, lat, lng }),
+        });
+
+        if (res.ok) {
+          Swal.fire({
+            title: "Absensi Berhasil!",
+            text: "Data Anda telah terekam di sistem.",
+            icon: "success",
+            timer: 2000,
+            showConfirmButton: false,
+          });
+          router.push("/admin/dashboard"); // Arahkan ke log/dashboard
+        }
+      } catch (error) {
+        setIsProcessing(false);
+        setPesan("Gagal mengirim data.");
+      }
     }
   };
 
-  // --- TAMPILAN MENU UTAMA ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-6">
@@ -77,19 +110,11 @@ export default function HomeAbsensi() {
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">SANPIO SYSTEM</h1>
             <p className="text-slate-400 text-xs mt-1 uppercase tracking-widest">Portal Kehadiran</p>
           </div>
-
           <div className="space-y-4">
-            <button
-              onClick={mulaiAbsen}
-              className="w-full py-4 bg-blue-700 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-800 transition-all active:scale-95 flex items-center justify-center gap-3"
-            >
+            <button onClick={mulaiAbsen} className="w-full py-4 bg-blue-700 text-white rounded-2xl font-bold shadow-lg hover:bg-blue-800 transition-all active:scale-95 flex items-center justify-center gap-3">
               🚀 MULAI ABSENSI
             </button>
-
-            <button
-              onClick={() => router.push("/admin/login")} // Arahkan ke folder admin/login
-              className="w-full py-4 bg-white text-slate-700 border-2 border-slate-200 rounded-2xl font-bold hover:bg-slate-50 transition-all active:scale-95 flex items-center justify-center gap-3"
-            >
+            <button onClick={() => router.push("/admin/login")} className="w-full py-4 bg-white text-slate-700 border-2 border-slate-200 rounded-2xl font-bold hover:bg-slate-50 transition-all active:scale-95">
               🔐 LOGIN ADMIN
             </button>
           </div>
@@ -99,70 +124,49 @@ export default function HomeAbsensi() {
     );
   }
 
-  // --- TAMPILAN KAMERA ABSEN ---
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col items-center p-4">
-      <div className="w-full max-w-md bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200">
-        <div className="bg-gradient-to-r from-blue-700 to-indigo-800 p-8 text-white text-center relative">
-          <button 
-            onClick={() => setView("menu")} 
-            className="absolute left-6 top-9 text-white opacity-70 hover:opacity-100"
-          >
-            ←
-          </button>
-          <h1 className="text-2xl font-black tracking-widest uppercase">Sanpio Absen</h1>
-          <p className="text-[10px] opacity-70 mt-1 uppercase tracking-widest">Scanning Phase</p>
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      <button onClick={() => setView("menu")} className="absolute top-6 left-6 z-50 bg-white/10 text-white px-4 py-2 rounded-xl backdrop-blur-md text-sm font-bold border border-white/10">
+        ← KEMBALI
+      </button>
+
+      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden shadow-2xl border-4 border-slate-800 bg-black">
+        <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "user" }} className="w-full h-full object-cover" />
+        
+        {/* Frame Oval Pembatas Wajah */}
+        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
+          <div className="w-[260px] h-[340px] border-2 border-dashed border-blue-400/50 rounded-[120px] shadow-[0_0_0_1000px_rgba(15,23,42,0.7)]"></div>
+          <div className="absolute w-[280px] h-[360px] border border-blue-500/20 rounded-[130px]"></div>
         </div>
 
-        <div className="p-8 flex flex-col items-center space-y-6">
-          <div className="relative w-64 h-80 rounded-[120px] overflow-hidden border-8 border-slate-50 shadow-2xl bg-black transform transition-all hover:scale-105">
-            {!imgSrc ? (
-              <Webcam
-                audio={false}
-                ref={webcamRef}
-                screenshotFormat="image/jpeg"
-                className="w-full h-full object-cover scale-125"
-                videoConstraints={{ facingMode: "user" }}
-              />
-            ) : (
-              <img src={imgSrc} className="w-full h-full object-cover" alt="Hasil Scan" />
-            )}
-          </div>
+        {/* Efek Animasi Laser Scan */}
+        <div className="absolute left-0 w-full h-[3px] bg-blue-500 shadow-[0_0_15px_3px_rgba(59,130,246,0.8)] z-30 animate-scan"></div>
 
-          <div className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-            <span className="text-[10px] font-bold text-blue-600 uppercase block mb-1">Status Kehadiran</span>
-            <p className="text-sm text-slate-600 font-medium leading-relaxed">{pesan}</p>
+        {/* Info Overlay */}
+        <div className="absolute bottom-0 left-0 w-full p-8 z-40 bg-gradient-to-t from-slate-950 to-transparent">
+          <div className="text-center space-y-2">
+            <p className="text-blue-400 font-black text-lg tracking-wider animate-pulse uppercase">
+              {pesan}
+            </p>
             {coords && (
-              <div className="mt-2 inline-block px-3 py-1 bg-blue-100 rounded-full text-[9px] text-blue-700 font-mono">
+              <div className="text-[10px] text-slate-400 font-mono">
                 {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
               </div>
             )}
           </div>
-
-          <div className="w-full pt-2">
-            {!imgSrc ? (
-              <button
-                onClick={ambilFoto}
-                disabled={!coords}
-                className={`w-full py-4 rounded-2xl font-bold transition-all shadow-lg ${
-                  coords 
-                  ? "bg-indigo-600 text-white active:scale-95 shadow-indigo-200" 
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed"
-                }`}
-              >
-                {coords ? "SCAN WAJAH SEKARANG" : "MENGUNCI GPS..."}
-              </button>
-            ) : (
-              <button
-                onClick={() => { setImgSrc(null); setPesan("Silakan absen kembali."); }}
-                className="w-full bg-slate-800 text-white py-4 rounded-2xl font-bold active:scale-95 transition-all shadow-lg shadow-slate-300"
-              >
-                ABSEN ULANG
-              </button>
-            )}
-          </div>
         </div>
       </div>
+
+      <style jsx global>{`
+        @keyframes scan {
+          0% { top: 20%; opacity: 0; }
+          50% { opacity: 1; }
+          100% { top: 80%; opacity: 0; }
+        }
+        .animate-scan {
+          animation: scan 3s infinite linear;
+        }
+      `}</style>
     </div>
   );
 }
