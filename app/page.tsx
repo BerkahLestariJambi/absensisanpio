@@ -51,7 +51,6 @@ export default function HomeAbsensi() {
         const labeledDescriptors = await Promise.all(
           gurus.map(async (g) => {
             try {
-              // Menambahkan crossOrigin 'anonymous' untuk menghindari error CORS pada gambar
               const img = await faceapi.fetchImage(`https://backendabsen.mejatika.com/storage/${g.foto_referensi}`);
               const fullFaceDescription = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
               
@@ -81,7 +80,7 @@ export default function HomeAbsensi() {
     initAI();
   }, []);
 
-  // 2. Loop Deteksi Wajah yang telah diperbaiki
+  // 2. Loop Deteksi Wajah
   useEffect(() => {
     let interval: NodeJS.Timeout;
     
@@ -96,7 +95,9 @@ export default function HomeAbsensi() {
           if (!detection) {
             setJarakWajah("none");
           } else {
-            const { width } = detection.box;
+            // PERBAIKAN: Menggunakan (detection as any).detection.box untuk menghindari Type Error build
+            const { width } = (detection as any).detection.box;
+            
             if (width < 130) setJarakWajah("jauh");
             else if (width > 260) setJarakWajah("dekat");
             else {
@@ -104,7 +105,7 @@ export default function HomeAbsensi() {
               if (coords && faceMatcher && !isProcessing) {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
                 if (match.label !== "unknown") {
-                  setIsProcessing(true); // Kunci proses agar tidak double hit
+                  setIsProcessing(true); 
                   handleAbsen(match.label, webcamRef.current.getScreenshot()!);
                 } else {
                   setPesan("Wajah Tidak Dikenali");
@@ -186,11 +187,10 @@ export default function HomeAbsensi() {
     );
   };
 
-  // UI TETAP SAMA SEPERTI KODE ASLIMU
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
-        <div className="w-full max-w-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
+        <div className="w-full max-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
           <div className="w-20 h-20 bg-red-600 rounded-3xl mx-auto flex items-center justify-center shadow-xl mb-4">
             <span className="text-white text-3xl font-black">S</span>
           </div>
