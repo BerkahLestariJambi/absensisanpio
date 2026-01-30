@@ -9,173 +9,160 @@ export default function HomeAbsensi() {
   const [view, setView] = useState<"menu" | "absen">("menu");
   const webcamRef = useRef<Webcam>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [pesan, setPesan] = useState("⚡ Turbo Mode");
+  const [pesan, setPesan] = useState("Memuat Sistem...");
   const [jarakWajah, setJarakWajah] = useState<"pas" | "jauh" | "dekat" | "none">("none");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
-  
-  // FITUR BARU: State untuk menampung Guru ID
-  const [selectedGuruId, setSelectedGuruId] = useState<string>("");
-  const [listGuru, setListGuru] = useState<any[]>([]);
-
+  const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const router = useRouter();
 
-  const videoConstraints = {
-    width: 320,
-    height: 480,
-    facingMode: "user" as const,
-  };
+  const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
 
-  // 1. AUTO LOCK GPS, LOAD MODELS & FETCH GURU
+  // --- 1. LOAD AI, DATABASE WAJAH, & GPS LOCK ---
   useEffect(() => {
     const initSistem = async () => {
       try {
         const MODEL_URL = "/models";
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        setModelsLoaded(true);
+        // Load semua engine AI
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        ]);
 
-        // Ambil data guru untuk pilihan di menu
+        // Ambil data guru dari API untuk referensi wajah
         const res = await fetch("https://backendabsen.mejatika.com/api/gurus");
-        const data = await res.json();
-        setListGuru(data);
+        const gurus = await res.json();
+
+        const labeledDescriptors = await Promise.all(
+          gurus.map(async (guru: any) => {
+            if (!guru.foto_profil) return null;
+            // Fetch foto asli guru untuk dipelajari AI
+            const img = await faceapi.fetchImage(`https://backendabsen.mejatika.com/storage/${guru.foto_profil}`);
+            const fullDesc = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+            return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
+          })
+        );
+
+        const validDescriptors = labeledDescriptors.filter(d => d !== null) as faceapi.LabeledFaceDescriptors[];
+        if (validDescriptors.length > 0) {
+          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
+          setPesan("⚡ Sistem Siap");
+        } else {
+          setPesan("Database Wajah Kosong");
+        }
       } catch (err) {
-        setPesan("Gagal Load AI/Data");
+        console.error(err);
+        setPesan("Gagal Inisialisasi");
       }
     };
+
     initSistem();
 
     if ("geolocation" in navigator) {
-      const watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        },
-        (err) => console.error("GPS Error:", err),
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+      navigator.geolocation.watchPosition(
+        (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        null,
+        { enableHighAccuracy: true }
       );
-      return () => navigator.geolocation.clearWatch(watchId);
     }
   }, []);
 
-  // 2. DETEKSI WAJAH & AUTO SUBMIT
+  // --- 2. LOGIKA RECOGNITION & AUTO SUBMIT ---
   useEffect(() => {
     let interval: any;
-    if (view === "absen" && modelsLoaded && !isProcessing) {
-      const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.5 });
-
+    if (view === "absen" && faceMatcher && !isProcessing) {
       interval = setInterval(async () => {
         if (webcamRef.current?.video?.readyState === 4) {
           const video = webcamRef.current.video;
-          const detection = await faceapi.detectSingleFace(video, detectorOptions);
+          // Deteksi Wajah + Landmark + Descriptor (untuk Recognition)
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptor();
 
           if (!detection) {
             setJarakWajah("none");
             setPesan("Mencari Wajah...");
           } else {
-            const { width } = detection.box;
-            if (width < 85) { 
-              setJarakWajah("jauh"); 
-              setPesan("Dekatkan Wajah");
-            } else if (width > 280) { 
-              setJarakWajah("dekat"); 
-              setPesan("Terlalu Dekat");
-            } else {
-              setJarakWajah("pas");
-              setPesan("⚡ TERDETEKSI!");
+            const { width } = detection.detection.box;
+            
+            // Validasi Jarak Wajah
+            if (width < 90) { setJarakWajah("jauh"); setPesan("Dekatkan Wajah"); }
+            else if (width > 260) { setJarakWajah("dekat"); setPesan("Terlalu Dekat"); }
+            else {
+              // COCOKKAN WAJAH DENGAN DATABASE
+              const match = faceMatcher.findBestMatch(detection.descriptor);
               
-              if (coords && selectedGuruId) {
-                setIsProcessing(true);
-                clearInterval(interval);
-                sendToServer(coords.lat, coords.lng);
+              if (match.label === "unknown") {
+                setJarakWajah("none");
+                setPesan("Wajah Tak Dikenal");
+              } else {
+                setJarakWajah("pas");
+                setPesan(`Halo! Mengirim Data...`);
+                
+                if (coords) {
+                  setIsProcessing(true);
+                  clearInterval(interval);
+                  sendToServer(match.label, coords.lat, coords.lng);
+                }
               }
             }
           }
         }
-      }, 100); 
+      }, 400); // Speed optimal agar tidak lag
     }
     return () => clearInterval(interval);
-  }, [view, modelsLoaded, isProcessing, coords, selectedGuruId]);
+  }, [view, faceMatcher, isProcessing, coords]);
 
-  // 3. KIRIM DATA DENGAN GURU_ID
-  const sendToServer = async (lat: number, lng: number) => {
-    setPesan("🚀 Mengirim...");
+  const sendToServer = async (guruId: string, lat: number, lng: number) => {
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ 
-          lat, 
-          lng, 
-          guru_id: selectedGuruId // Sekarang mengirim ID asli
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guru_id: guruId, lat, lng }),
       });
-      
-      const responseData = await res.json().catch(() => ({}));
-
       if (res.ok) {
-        Swal.fire({ title: "Berhasil!", text: "Absen berhasil dicatat.", icon: "success", timer: 1500, showConfirmButton: false });
+        Swal.fire({ title: "Berhasil!", text: "Wajah Dikenali & Absen Tercatat.", icon: "success", timer: 2000, showConfirmButton: false });
         router.push("/dashboard-absensi");
-      } else {
-        throw new Error(responseData.message || "Ditolak Server");
       }
-    } catch (e: any) {
+    } catch (e) {
       setIsProcessing(false);
-      setJarakWajah("none");
-      Swal.fire("Gagal", e.message, "error");
+      Swal.fire("Gagal", "Masalah Koneksi", "error");
     }
   };
 
   // --- UI MENU UTAMA ---
   if (view === "menu") {
     return (
-      <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik text-slate-800">
+      <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
         <div className="w-full max-w-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
-          <div className="w-16 h-16 bg-red-600 rounded-2xl mx-auto flex items-center justify-center shadow-xl mb-4">
-            <span className="text-white text-3xl font-black italic">⚡</span>
-          </div>
-          <h1 className="text-2xl font-black tracking-tighter uppercase leading-none mb-6">Turbo Absen</h1>
+          <div className="w-16 h-16 bg-red-600 rounded-2xl mx-auto flex items-center justify-center shadow-xl mb-4 text-white text-3xl font-black italic">⚡</div>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase mb-6">Turbo Recognition</h1>
           
-          <div className="space-y-4">
-            {/* Input Pilih Nama Guru */}
-            <div className="text-left">
-              <label className="text-[10px] font-bold text-slate-500 uppercase ml-2">Pilih Nama Anda:</label>
-              <select 
-                value={selectedGuruId}
-                onChange={(e) => setSelectedGuruId(e.target.value)}
-                className="w-full mt-1 p-3 bg-white border-2 border-amber-100 rounded-2xl text-sm font-bold focus:outline-none focus:border-red-500 transition-all"
-              >
-                <option value="">-- Pilih Nama Guru --</option>
-                {listGuru.map((g) => (
-                  <option key={g.id} value={g.id}>{g.nama_lengkap}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="p-3 bg-amber-50 rounded-2xl border border-amber-100">
-              <p className="text-[9px] font-bold text-amber-800 uppercase tracking-widest">GPS Status:</p>
-              <p className={`text-[11px] font-mono font-bold ${coords ? "text-green-600" : "text-red-500 animate-pulse"}`}>
-                {coords ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` : "MENCARI SATELIT..."}
-              </p>
-            </div>
-            
-            <button 
-              disabled={!modelsLoaded || !coords || !selectedGuruId}
-              onClick={() => setView("absen")} 
-              className={`w-full py-4 ${modelsLoaded && coords && selectedGuruId ? 'bg-red-600 hover:scale-105 active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
-            >
-              {selectedGuruId ? "🚀 MULAI ABSEN" : "PILIH NAMA DULU"}
-            </button>
-            <button onClick={() => router.push("/admin/login")} className="text-[11px] font-bold text-slate-400 hover:text-red-600 transition-colors mt-4">🔐 LOGIN ADMIN</button>
+          <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 mb-8">
+            <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest">Status Sistem:</p>
+            <p className={`text-[12px] font-mono font-bold ${faceMatcher && coords ? "text-green-600" : "text-red-500 animate-pulse"}`}>
+              {pesan}
+            </p>
           </div>
+          
+          <button 
+            disabled={!faceMatcher || !coords}
+            onClick={() => setView("absen")} 
+            className={`w-full py-4 ${faceMatcher && coords ? 'bg-red-600 hover:scale-105 shadow-lg' : 'bg-slate-300'} text-white rounded-2xl font-black transition-all`}
+          >
+            {faceMatcher ? "🚀 MULAI SCAN WAJAH" : "MENYIAPKAN AI..."}
+          </button>
+          <button onClick={() => router.push("/admin/login")} className="mt-6 text-[11px] font-bold text-slate-400 uppercase tracking-widest">🔐 Admin Login</button>
         </div>
       </div>
     );
   }
 
-  // --- UI KAMERA ABSEN ---
+  // --- UI KAMERA (LAYOUT ATAS + SCANNER + INFO GPS) ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden">
       <div className="w-full max-w-md flex justify-start mt-2 mb-2">
-        <button onClick={() => { setView("menu"); setIsProcessing(false); }} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg">← BATAL</button>
+        <button onClick={() => { setView("menu"); setIsProcessing(false); }} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black z-50 shadow-lg">← BATAL</button>
       </div>
 
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl mb-6">
@@ -186,7 +173,7 @@ export default function HomeAbsensi() {
 
         {/* Fitur: Info Overlay (Lat, Lng & Progress Bar) */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4">
                 <div className="flex justify-between items-center mb-3">
                     <div className="space-y-1">
                         <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest leading-none">Latitude</p>
@@ -210,7 +197,7 @@ export default function HomeAbsensi() {
       </div>
 
       <div className="w-full max-w-md px-6 text-center opacity-40 mt-2">
-        <p className="text-slate-800 font-black text-[10px] tracking-[0.3em] uppercase italic leading-none">Sanpio Turbo Absen</p>
+        <p className="text-slate-800 font-black text-[10px] tracking-[0.3em] uppercase italic leading-none">Sanpio Auto-Recognition</p>
       </div>
 
       <style jsx global>{`
