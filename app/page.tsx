@@ -9,36 +9,75 @@ export default function HomeAbsensi() {
   const [view, setView] = useState<"menu" | "absen">("menu");
   const webcamRef = useRef<Webcam>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [pesan, setPesan] = useState("Mencari Sinyal GPS...");
+  const [pesan, setPesan] = useState("Menyiapkan Sistem...");
   const [jarakWajah, setJarakWajah] = useState<"pas" | "jauh" | "dekat" | "none">("none");
   const [isProcessing, setIsProcessing] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const router = useRouter();
 
   const schoolCoords = { lat: -6.2000, lng: 106.8000 };
   const maxRadius = 50;
 
+  // 1. Load Model & Ambil Data Wajah Referensi dari Database
   useEffect(() => {
-    const loadModels = async () => {
+    const initAI = async () => {
       try {
         const MODEL_URL = "/models";
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        ]);
+
+        // Ambil data foto referensi semua guru dari backend
+        const res = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
+        const gurus = await res.json();
+
+        if (gurus.length === 0) {
+          setPesan("Data referensi kosong");
+          setModelsLoaded(true);
+          return;
+        }
+
+        // Mapping foto ke descriptor (Sidik jari wajah)
+        const labeledDescriptors = await Promise.all(
+          gurus.map(async (g: any) => {
+            try {
+              const img = await faceapi.fetchImage(`https://backendabsen.mejatika.com/storage/${g.foto_referensi}`);
+              const fullFaceDescription = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+              
+              if (!fullFaceDescription) return null;
+              return new faceapi.LabeledFaceDescriptors(g.id.toString(), [fullFaceDescription.descriptor]);
+            } catch (e) { return null; }
+          })
+        );
+
+        const validDescriptors = labeledDescriptors.filter(d => d !== null) as faceapi.LabeledFaceDescriptors[];
+        if (validDescriptors.length > 0) {
+          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
+        }
+        
         setModelsLoaded(true);
+        setPesan("Sistem Siap");
       } catch (err) {
-        console.error("Gagal load model AI:", err);
-        setPesan("Gagal memuat sistem AI");
+        console.error("Gagal load AI:", err);
+        setPesan("Gagal memuat AI");
       }
     };
-    loadModels();
+    initAI();
   }, []);
 
+  // 2. Loop Deteksi Wajah
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
       interval = setInterval(async () => {
         if (webcamRef.current && webcamRef.current.video?.readyState === 4) {
           const video = webcamRef.current.video;
-          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptor();
 
           if (!detection) {
             setJarakWajah("none");
@@ -48,27 +87,60 @@ export default function HomeAbsensi() {
             else if (width > 260) setJarakWajah("dekat");
             else {
               setJarakWajah("pas");
-              if (coords && !isProcessing) {
-                clearInterval(interval);
-                handleAutoCapture();
+              // Jika posisi pas dan wajah dikenali, eksekusi absen
+              if (coords && faceMatcher && !isProcessing) {
+                const match = faceMatcher.findBestMatch(detection.descriptor);
+                if (match.label !== "unknown") {
+                  clearInterval(interval);
+                  handleAbsen(match.label, webcamRef.current.getScreenshot()!);
+                } else {
+                  setPesan("Wajah Tidak Dikenali");
+                }
               }
             }
           }
         }
-      }, 600);
+      }, 700);
     }
     return () => clearInterval(interval);
-  }, [view, modelsLoaded, coords, isProcessing]);
+  }, [view, modelsLoaded, coords, isProcessing, faceMatcher]);
 
-  const handleAutoCapture = () => {
-    setTimeout(() => {
-      if (webcamRef.current) {
-        const image = webcamRef.current.getScreenshot();
-        if (image && coords) ambilFotoOtomatis(image, coords.lat, coords.lng);
+  const handleAbsen = async (guruId: string, image: string) => {
+    setIsProcessing(true);
+    setPesan("Memverifikasi...");
+
+    try {
+      const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guru_id: guruId,
+          image: image,
+          lat: coords?.lat,
+          lng: coords?.lng
+        }),
+      });
+
+      if (res.ok) {
+        Swal.fire({
+          title: "Absen Berhasil!",
+          text: "Mengarahkan ke Log Absensi...",
+          icon: "success",
+          timer: 2000,
+          showConfirmButton: false
+        });
+        // Langsung arahkan ke dashboard log absensi
+        router.push("/admin/rekap-absensi");
+      } else {
+        throw new Error("Gagal absen");
       }
-    }, 1500);
+    } catch (error) {
+      Swal.fire("Gagal", "Terjadi kesalahan server", "error");
+      setIsProcessing(false);
+    }
   };
 
+  // ... (Fungsi calculateDistance & getInitialLocation tetap sama seperti kodemu)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3;
     const φ1 = (lat1 * Math.PI) / 180;
@@ -88,6 +160,7 @@ export default function HomeAbsensi() {
         else {
           setPesan("Di Luar Area");
           Swal.fire("Akses Ditolak", `Jarak Anda ${Math.round(distance)}m dari sekolah.`, "error");
+          setView("menu");
         }
       },
       () => Swal.fire("GPS Error", "Aktifkan GPS Anda!", "error"),
@@ -95,26 +168,7 @@ export default function HomeAbsensi() {
     );
   };
 
-  const ambilFotoOtomatis = async (image: string, lat: number, lng: number) => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    try {
-      const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image, lat, lng }),
-      });
-      if (res.ok) {
-        Swal.fire({ title: "Berhasil!", text: "Absensi Terekam", icon: "success", timer: 1500, showConfirmButton: false });
-        router.push("/admin/dashboard");
-      } else throw new Error("Gagal kirim");
-    } catch (error) {
-      setIsProcessing(false);
-      setJarakWajah("none");
-      Swal.fire("Error", "Gagal mengirim data ke server.", "error");
-    }
-  };
-
+  // TAMPILAN (Return sama dengan kodemu, hanya disesuaikan buttonnya)
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -164,18 +218,21 @@ export default function HomeAbsensi() {
         {/* OVERLAY KOORDINAT & INSTRUKSI */}
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-between py-10 pointer-events-none">
           <div className="bg-white/90 backdrop-blur-md border border-amber-200 px-6 py-3 rounded-2xl shadow-xl">
-            <p className="text-red-600 font-black text-sm tracking-widest uppercase">
-              {jarakWajah === "pas" && "✅ Posisi Pas! Tahan..."}
-              {jarakWajah === "jauh" && "❌ Dekatkan Wajah"}
-              {jarakWajah === "dekat" && "❌ Terlalu Dekat"}
-              {jarakWajah === "none" && "🔍 Mencari Wajah..."}
+            <p className="text-red-600 font-black text-sm tracking-widest uppercase text-center">
+              {isProcessing ? "⏳ Sedang Memproses..." : (
+                <>
+                  {jarakWajah === "pas" && "✅ Posisi Pas! Tahan..."}
+                  {jarakWajah === "jauh" && "❌ Dekatkan Wajah"}
+                  {jarakWajah === "dekat" && "❌ Terlalu Dekat"}
+                  {jarakWajah === "none" && "🔍 Mencari Wajah..."}
+                </>
+              )}
             </p>
           </div>
 
           <div className="w-full px-6 space-y-3">
-            {/* BOX KOORDINAT */}
             <div className="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-center">
-               <div className="flex justify-around items-center">
+                <div className="flex justify-around items-center">
                   <div className="text-left">
                     <p className="text-[9px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
                     <p className="text-xs font-mono text-white font-bold">{coords ? coords.lat.toFixed(6) : "Fetching..."}</p>
@@ -185,8 +242,8 @@ export default function HomeAbsensi() {
                     <p className="text-[9px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
                     <p className="text-xs font-mono text-white font-bold">{coords ? coords.lng.toFixed(6) : "Fetching..."}</p>
                   </div>
-               </div>
-               <p className="text-[10px] text-amber-200 mt-2 font-bold tracking-tighter uppercase italic">{pesan}</p>
+                </div>
+                <p className="text-[10px] text-amber-200 mt-2 font-bold tracking-tighter uppercase italic">{pesan}</p>
             </div>
             
             <div className="h-1.5 bg-white/20 rounded-full overflow-hidden w-full mx-auto">
@@ -195,7 +252,6 @@ export default function HomeAbsensi() {
           </div>
         </div>
       </div>
-
       <style jsx global>{`
         .bg-batik {
           background-color: #fdf5e6;
