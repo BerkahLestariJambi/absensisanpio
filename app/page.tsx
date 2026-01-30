@@ -36,7 +36,19 @@ export default function HomeAbsensi() {
     loadModels();
   }, []);
 
-  // 2. DETEKSI & CAPTURE KILAT
+  // 2. GPS WATCH agar selalu update
+  useEffect(() => {
+    if (view === "absen") {
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (err) => console.error("GPS Error:", err),
+        { enableHighAccuracy: true }
+      );
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
+  }, [view]);
+
+  // 3. DETEKSI WAJAH + CAPTURE
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
@@ -66,14 +78,12 @@ export default function HomeAbsensi() {
               
               const image = webcamRef.current?.getScreenshot();
               
-              // Validasi: Jangan kirim jika koordinat masih 0 (biasanya GPS belum lock)
-              if (image && coords && coords.lat !== 0) {
+              if (image && coords && coords.lat !== 0 && coords.lng !== 0) {
                 sendToServer(image, coords.lat, coords.lng);
               } else {
                 setIsProcessing(false);
                 setPesan("GPS Belum Siap...");
-                // Jika koordinat nol, paksa user balik ke menu untuk refresh GPS
-                Swal.fire("GPS Belum Siap", "Tunggu hingga koordinat muncul sempurna.", "warning");
+                Swal.fire("GPS Belum Siap", "Tunggu koordinat valid.", "warning");
                 setView("menu");
               }
             }
@@ -84,44 +94,47 @@ export default function HomeAbsensi() {
     return () => clearInterval(interval);
   }, [view, modelsLoaded, isProcessing, coords]);
 
-  // 3. KIRIM DATA KE API (Anti "Failed to Fetch")
+  // 4. KIRIM DATA KE BACKEND
   const sendToServer = async (image: string, lat: number, lng: number) => {
     setPesan("🚀 Mengirim...");
     try {
+      const base64Image = image.split(",")[1]; // buang prefix data:image/jpeg;base64,
+
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
-        mode: "cors", // Memastikan CORS ditangani
         headers: { 
           "Content-Type": "application/json", 
           "Accept": "application/json" 
         },
-        body: JSON.stringify({ image, lat, lng }),
+        body: JSON.stringify({ image: base64Image, lat, lng }),
       });
-      
-      const responseData = await res.json().catch(() => ({}));
+
+      let responseData;
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        responseData = await res.json();
+      } else {
+        responseData = await res.text();
+      }
 
       if (res.ok) {
         Swal.fire({ title: "Berhasil!", text: "Absensi Anda telah tercatat.", icon: "success", timer: 1500, showConfirmButton: false });
         router.push("/dashboard-absensi");
       } else {
-        // Menangkap error logic dari backend (seperti jarak jauh)
         throw new Error(responseData.message || `Server Error: ${res.status}`);
       }
     } catch (e: any) {
       setIsProcessing(false);
       setJarakWajah("none");
-      
-      // Deteksi jika ini error koneksi (Failed to fetch) atau error server
       const errorMsg = e.message === "Failed to fetch" 
         ? "Gagal terhubung ke server. Periksa internet atau SSL domain." 
         : e.message;
-
       Swal.fire("Gagal Kirim", errorMsg, "error");
       setPesan("Gagal Kirim");
     }
   };
 
-  // 4. FLOW MULAI (Geolokasi)
+  // 5. FLOW MULAI (GPS lock dulu)
   const startAbsenFlow = () => {
     setPesan("🛰️ Mencari Satelit...");
     if (!navigator.geolocation) {
@@ -130,8 +143,12 @@ export default function HomeAbsensi() {
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setView("absen");
+        if (pos.coords.latitude !== 0 && pos.coords.longitude !== 0) {
+          setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setView("absen");
+        } else {
+          Swal.fire("GPS Belum Siap", "Tunggu koordinat valid.", "warning");
+        }
       },
       (err) => {
         let msg = "Aktifkan GPS!";
@@ -143,7 +160,7 @@ export default function HomeAbsensi() {
     );
   };
 
-  // --- UI MENU UTAMA ---
+  // --- UI MENU ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -185,54 +202,56 @@ export default function HomeAbsensi() {
         ← BATAL
       </button>
 
-      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
+        <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
         <Webcam 
           ref={webcamRef} 
           audio={false} 
           screenshotFormat="image/jpeg" 
-          screenshotQuality={0.5} // Kualitas dinaikkan sedikit agar wajah jelas
+          screenshotQuality={0.5} // kualitas cukup jelas untuk wajah
           videoConstraints={videoConstraints} 
           className="w-full h-full object-cover" 
         />
         
         {/* Scanner Overlay */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-            <div className={`relative w-64 h-64 border-2 rounded-full transition-all duration-300 ${jarakWajah === 'pas' ? 'border-green-400 scale-110 shadow-[0_0_20px_rgba(74,222,128,0.5)]' : 'border-white/20'}`}>
-                <div className={`absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin-slow ${jarakWajah === 'pas' ? 'opacity-0' : 'opacity-100'}`}></div>
-            </div>
+          <div className={`relative w-64 h-64 border-2 rounded-full transition-all duration-300 
+            ${jarakWajah === 'pas' ? 'border-green-400 scale-110 shadow-[0_0_20px_rgba(74,222,128,0.5)]' : 'border-white/20'}`}>
+            <div className={`absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin-slow 
+              ${jarakWajah === 'pas' ? 'opacity-0' : 'opacity-100'}`}></div>
+          </div>
         </div>
 
         {/* Info Layer */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
-                <div className="flex justify-between items-center mb-3">
-                    <div className="space-y-1">
-                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
-                        <p className="text-[12px] font-mono text-white font-bold">
-                            {coords ? coords.lat.toFixed(7) : "Searching..."}
-                        </p>
-                    </div>
-                    <div className="w-[1px] h-6 bg-white/20"></div>
-                    <div className="space-y-1 text-right">
-                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
-                        <p className="text-[12px] font-mono text-white font-bold">
-                            {coords ? coords.lng.toFixed(7) : "Searching..."}
-                        </p>
-                    </div>
-                </div>
-                
-                <div className="flex items-center gap-3 border-t border-white/10 pt-3">
-                    <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full bg-red-600 transition-all duration-700 
-                          ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}
-                        ></div>
-                    </div>
-                    <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest">
-                      {pesan}
-                    </span>
-                </div>
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
+            <div className="flex justify-between items-center mb-3">
+              <div className="space-y-1">
+                <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
+                <p className="text-[12px] font-mono text-white font-bold">
+                  {coords ? coords.lat.toFixed(7) : "Searching..."}
+                </p>
+              </div>
+              <div className="w-[1px] h-6 bg-white/20"></div>
+              <div className="space-y-1 text-right">
+                <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
+                <p className="text-[12px] font-mono text-white font-bold">
+                  {coords ? coords.lng.toFixed(7) : "Searching..."}
+                </p>
+              </div>
             </div>
+            
+            <div className="flex items-center gap-3 border-t border-white/10 pt-3">
+              <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full bg-red-600 transition-all duration-700 
+                  ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}
+                ></div>
+              </div>
+              <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest">
+                {pesan}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
