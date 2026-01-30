@@ -12,13 +12,11 @@ export default function AdminDashboard() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   
-  // Data User dari LocalStorage
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
 
   const API_URL = "https://backendabsen.mejatika.com/api";
 
-  // Fungsi Sinkronisasi Data dengan Header Auth
   const loadData = async () => {
     const token = localStorage.getItem("auth_token");
     if (!token) return router.push("/admin/login");
@@ -47,7 +45,6 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    // Ambil info user saat komponen dimuat
     const role = localStorage.getItem("user_role");
     const name = localStorage.getItem("user_name");
     
@@ -65,11 +62,37 @@ export default function AdminDashboard() {
     router.push("/admin/login");
   };
 
-  // Fungsi Import Excel (Hanya untuk Super Admin)
+  // --- FITUR HAPUS GURU ---
+  const handleHapusGuru = async (id: number, nama: string) => {
+    Swal.fire({
+      title: `Hapus ${nama}?`,
+      text: "Data guru dan riwayat absen akan terhapus permanen!",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#ef4444",
+      confirmButtonText: "Ya, Hapus!",
+      cancelButtonText: "Batal"
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          const res = await fetch(`${API_URL}/admin/guru/${id}`, {
+            method: "DELETE",
+            headers: { "Authorization": `Bearer ${localStorage.getItem("auth_token")}` }
+          });
+          if (res.ok) {
+            Swal.fire("Berhasil", "Data telah dihapus", "success");
+            loadData();
+          }
+        } catch (err) {
+          Swal.fire("Error", "Gagal menghapus data", "error");
+        }
+      }
+    });
+  };
+
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (userRole !== "super_admin") return;
-
     if (!file) return Swal.fire("Pilih File", "Silakan pilih file Excel dulu.", "warning");
 
     const formData = new FormData();
@@ -88,16 +111,15 @@ export default function AdminDashboard() {
         setFile(null);
         loadData();
       } else {
-        Swal.fire("Gagal", "Format file tidak sesuai atau akses ditolak.", "error");
+        Swal.fire("Gagal", "Format file tidak sesuai.", "error");
       }
     } catch (err) {
-      Swal.fire("Error", "Koneksi ke server terputus.", "error");
+      Swal.fire("Error", "Koneksi terputus.", "error");
     } finally {
       setLoading(false);
     }
   };
 
-  // Fungsi Update Izin (Dibatasi di Backend)
   const updateStatusIzin = async (id: number, status: string) => {
     try {
       const res = await fetch(`${API_URL}/admin/izin/${id}/status`, {
@@ -109,46 +131,43 @@ export default function AdminDashboard() {
         body: JSON.stringify({ status }),
       });
       if (res.ok) {
-        Swal.fire("Updated", `Status izin menjadi ${status}`, "success");
+        Swal.fire("Updated", `Izin ${status}`, "success");
         loadData();
       } else {
-        const errorData = await res.json();
-        Swal.fire("Ditolak", errorData.message || "Bukan wewenang Anda.", "error");
+        Swal.fire("Ditolak", "Bukan wewenang Anda.", "error");
       }
     } catch (err) {
-      Swal.fire("Gagal", "Gagal memperbarui status.", "error");
+      Swal.fire("Gagal", "Error sistem.", "error");
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans">
-      <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans bg-batik">
+      <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[24px] shadow-sm border border-slate-100">
         <div>
-          <h1 className="text-3xl font-black text-slate-800 tracking-tight uppercase">Dashboard {userRole?.replace("_", " ")}</h1>
-          <p className="text-slate-500 font-medium italic text-sm">Welcome back, {userName}</p>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase">
+            <span className="text-red-600">SANPIO</span> {userRole?.replace("_", " ")}
+          </h1>
+          <p className="text-slate-400 font-medium text-xs tracking-widest uppercase">Petugas: {userName}</p>
         </div>
-        <div className="flex gap-3">
-          <button onClick={loadData} className="bg-white border-2 border-slate-200 px-6 py-2 rounded-2xl font-bold text-slate-600 hover:bg-slate-100 transition shadow-sm">
-            🔄 REFRESH
-          </button>
-          <button onClick={handleLogout} className="bg-red-50 text-red-600 border-2 border-red-100 px-6 py-2 rounded-2xl font-bold hover:bg-red-600 hover:text-white transition shadow-sm">
-            🚪 LOGOUT
-          </button>
+        <div className="flex gap-2">
+          <button onClick={loadData} className="bg-slate-100 p-3 rounded-xl hover:bg-slate-200 transition">🔄</button>
+          <button onClick={handleLogout} className="bg-red-50 text-red-600 px-6 py-2 rounded-xl font-bold hover:bg-red-600 hover:text-white transition">🚪 KELUAR</button>
         </div>
       </header>
 
       {/* Navigasi Tab */}
-      <div className="flex flex-wrap gap-4 md:gap-8 mb-8 border-b-2 border-slate-200">
+      <div className="flex gap-2 mb-8 bg-white p-2 rounded-2xl shadow-sm w-fit border border-slate-100">
         {[
-          { id: "guru", label: "Data Guru & Pegawai" },
-          { id: "rekap", label: "Rekap Kehadiran" },
-          { id: "izin", label: "Persetujuan Izin" },
+          { id: "guru", label: "Pegawai" },
+          { id: "rekap", label: "Kehadiran" },
+          { id: "izin", label: "Izin" },
         ].map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`pb-4 px-2 text-sm font-bold tracking-wider uppercase transition-all ${
-              activeTab === tab.id ? "border-b-4 border-blue-600 text-blue-600" : "text-slate-400 hover:text-slate-600"
+            className={`py-2 px-6 rounded-xl text-xs font-black tracking-widest uppercase transition-all ${
+              activeTab === tab.id ? "bg-red-600 text-white shadow-lg shadow-red-100" : "text-slate-400 hover:bg-slate-50"
             }`}
           >
             {tab.label}
@@ -159,47 +178,48 @@ export default function AdminDashboard() {
       {/* TAB 1: DATA GURU */}
       {activeTab === "guru" && (
         <div className="space-y-6 animate-in fade-in duration-500">
-          
-          {/* HANYA MUNCUL UNTUK SUPER ADMIN */}
+          <div className="flex justify-between items-center">
+             <h2 className="font-black text-slate-800 uppercase tracking-tighter text-xl">Daftar Guru & Staff</h2>
+             <button onClick={() => router.push("/admin/pegawai/tambah")} className="bg-slate-800 text-white px-5 py-2 rounded-xl text-xs font-bold hover:bg-black transition">+ TAMBAH MANUAL</button>
+          </div>
+
           {userRole === "super_admin" && (
-            <div className="bg-white p-8 rounded-[32px] shadow-xl shadow-slate-200 border border-white">
-              <h3 className="font-black text-slate-800 text-lg mb-4 uppercase tracking-tight">Import Data Master (Admin Only)</h3>
+            <div className="bg-white p-6 rounded-[24px] shadow-sm border border-blue-50">
               <form onSubmit={handleImport} className="flex flex-col md:flex-row gap-4">
-                <input 
-                  type="file" 
-                  accept=".xlsx, .xls"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-3 file:px-6 file:rounded-2xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition cursor-pointer"
-                />
-                <button 
-                  type="submit" 
-                  disabled={loading}
-                  className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-slate-300 transition-all active:scale-95"
-                >
-                  {loading ? "PROCESSING..." : "UPLOAD EXCEL"}
+                <input type="file" accept=".xlsx, .xls" onChange={(e) => setFile(e.target.files?.[0] || null)} className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 transition" />
+                <button type="submit" disabled={loading} className="bg-blue-600 text-white px-6 py-2 rounded-xl text-xs font-black hover:bg-blue-700 disabled:bg-slate-300">
+                  {loading ? "..." : "IMPORT EXCEL"}
                 </button>
               </form>
             </div>
           )}
 
-          <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200 border border-white overflow-hidden">
+          <div className="bg-white rounded-[24px] shadow-sm border border-slate-100 overflow-hidden">
             <table className="w-full text-left">
-              <thead className="bg-slate-800 text-white uppercase text-[10px] tracking-[0.2em]">
+              <thead className="bg-slate-50 text-slate-400 uppercase text-[9px] font-black tracking-[0.2em] border-b">
                 <tr>
-                  <th className="p-6">Nama Lengkap</th>
-                  <th className="p-6">NIP/NUPTK</th>
-                  <th className="p-6">Jenjang</th>
+                  <th className="p-6">Data Pegawai</th>
+                  <th className="p-6">Unit</th>
+                  <th className="p-6 text-center">Aksi</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-50">
                 {gurus.map((g: any) => (
-                  <tr key={g.id} className="hover:bg-blue-50/50 transition">
-                    <td className="p-6 font-bold text-slate-700">{g.nama_lengkap}</td>
-                    <td className="p-6 font-mono text-slate-500">{g.nip || g.nuptk || "—"}</td>
+                  <tr key={g.id} className="hover:bg-slate-50/50 transition">
                     <td className="p-6">
-                        <span className={`px-3 py-1 rounded-lg text-[10px] font-black ${g.jenjang === 'SMA' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
+                      <div className="font-black text-slate-800 uppercase text-sm">{g.nama_lengkap}</div>
+                      <div className="text-[10px] font-mono text-slate-400">NIP. {g.nip || g.nuptk || "—"}</div>
+                    </td>
+                    <td className="p-6">
+                        <span className="px-3 py-1 rounded-full text-[9px] font-black bg-red-50 text-red-600 uppercase border border-red-100">
                             {g.jenjang}
                         </span>
+                    </td>
+                    <td className="p-6">
+                       <div className="flex justify-center gap-2">
+                          <button onClick={() => router.push(`/admin/pegawai/edit/${g.id}`)} className="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition text-xs">✏️</button>
+                          <button onClick={() => handleHapusGuru(g.id, g.nama_lengkap)} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition text-xs">🗑️</button>
+                       </div>
                     </td>
                   </tr>
                 ))}
@@ -211,45 +231,29 @@ export default function AdminDashboard() {
 
       {/* TAB 2: REKAP KEHADIRAN */}
       {activeTab === "rekap" && (
-        <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200 border border-white overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
+        <div className="bg-white rounded-[24px] shadow-sm border border-slate-100 overflow-hidden animate-in slide-in-from-bottom-2">
           <table className="w-full text-left">
-            <thead className="bg-slate-800 text-white uppercase text-[10px] tracking-[0.2em]">
+            <thead className="bg-slate-50 text-slate-400 uppercase text-[9px] font-black tracking-[0.2em] border-b">
               <tr>
-                <th className="p-6">Timestamp</th>
-                <th className="p-6">Nama Guru</th>
-                <th className="p-4 text-center">Face ID</th>
-                <th className="p-6">Geo-Location</th>
-                <th className="p-6">Status</th>
+                <th className="p-6">Waktu</th>
+                <th className="p-6">Nama</th>
+                <th className="p-4 text-center">Biometrik</th>
+                <th className="p-6 text-center">Lokasi</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-50 text-sm">
               {rekap.map((r: any) => (
-                <tr key={r.id} className="hover:bg-blue-50/50 transition">
-                  <td className="p-6 text-xs">
-                    <div className="font-black text-slate-800">{new Date(r.created_at).toLocaleDateString()}</div>
-                    <div className="text-blue-600 font-bold uppercase">{new Date(r.created_at).toLocaleTimeString()}</div>
-                  </td>
-                  <td className="p-6 font-bold text-slate-700">{r.nama_lengkap}</td>
-                  <td className="p-4 text-center">
-                    <img 
-                      src={`https://backendabsen.mejatika.com/storage/${r.foto_wajah}`} 
-                      className="w-12 h-12 object-cover rounded-xl border-2 border-white shadow-sm mx-auto"
-                      alt="Face"
-                    />
-                  </td>
+                <tr key={r.id} className="hover:bg-slate-50 transition">
                   <td className="p-6">
-                    <a 
-                      href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} 
-                      target="_blank" 
-                      className="text-[10px] font-black bg-slate-100 text-slate-600 px-4 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
-                    >
-                      📍 VIEW MAPS
-                    </a>
+                    <div className="font-bold text-slate-800">{new Date(r.created_at).toLocaleDateString('id-ID')}</div>
+                    <div className="text-red-500 font-black text-[10px]">{new Date(r.created_at).toLocaleTimeString()}</div>
                   </td>
-                  <td className="p-6">
-                    <span className={`text-[10px] px-4 py-1.5 rounded-full font-black uppercase tracking-widest ${r.status === 'Hadir' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {r.status}
-                    </span>
+                  <td className="p-6 font-bold text-slate-700 uppercase">{r.nama_lengkap}</td>
+                  <td className="p-4">
+                    <img src={`https://backendabsen.mejatika.com/storage/${r.foto_wajah}`} className="w-10 h-10 object-cover rounded-lg border shadow-sm mx-auto" alt="Face" />
+                  </td>
+                  <td className="p-6 text-center">
+                    <a href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} target="_blank" className="text-[10px] font-black bg-blue-50 text-blue-600 px-3 py-2 rounded-lg hover:bg-blue-600 hover:text-white transition">📍 MAPS</a>
                   </td>
                 </tr>
               ))}
@@ -258,40 +262,34 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* TAB 3: PERSETUJUAN IZIN */}
+      {/* TAB 3: IZIN */}
       {activeTab === "izin" && (
-        <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200 border border-white overflow-hidden animate-in fade-in duration-500">
+        <div className="bg-white rounded-[24px] shadow-sm border border-slate-100 overflow-hidden animate-in fade-in">
           <table className="w-full text-left">
-            <thead className="bg-slate-800 text-white uppercase text-[10px] tracking-[0.2em]">
+            <thead className="bg-slate-50 text-slate-400 uppercase text-[9px] font-black tracking-[0.2em] border-b">
               <tr>
-                <th className="p-6">Pemohon</th>
-                <th className="p-6">Keterangan</th>
-                <th className="p-6">Dokumen</th>
-                <th className="p-6 text-center">Konfirmasi</th>
+                <th className="p-6">Pegawai</th>
+                <th className="p-6">Alasan</th>
+                <th className="p-6 text-center">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-50">
               {izins.map((i: any) => (
-                <tr key={i.id} className="hover:bg-blue-50/50 transition">
+                <tr key={i.id} className="hover:bg-slate-50 transition">
                   <td className="p-6">
-                    <div className="font-bold text-slate-800">{i.nama_lengkap}</div>
-                    <div className="text-[10px] text-blue-500 font-bold uppercase">{i.jenis} ({i.jenjang})</div>
+                    <div className="font-bold text-slate-800 uppercase text-xs">{i.nama_lengkap}</div>
+                    <div className="text-[9px] text-blue-500 font-black uppercase tracking-tighter">{i.jenis}</div>
                   </td>
-                  <td className="p-6 text-sm text-slate-500 italic">"{i.keterangan}"</td>
+                  <td className="p-6 text-xs text-slate-500 italic">"{i.keterangan}"</td>
                   <td className="p-6">
-                    {i.bukti_dokumen ? (
-                      <a href={`https://backendabsen.mejatika.com/storage/${i.bukti_dokumen}`} target="_blank" className="text-blue-600 font-black text-xs underline">VIEW FILE</a>
-                    ) : <span className="text-slate-300 text-xs font-bold">NO FILE</span>}
-                  </td>
-                  <td className="p-6">
-                    <div className="flex justify-center gap-3">
+                    <div className="flex justify-center gap-2">
                       {i.status === "Pending" ? (
                         <>
-                          <button onClick={() => updateStatusIzin(i.id, "Disetujui")} className="bg-green-500 text-white px-5 py-2 rounded-xl text-[10px] font-black hover:bg-green-600 transition shadow-lg shadow-green-100">APPROVE</button>
-                          <button onClick={() => updateStatusIzin(i.id, "Ditolak")} className="bg-red-500 text-white px-5 py-2 rounded-xl text-[10px] font-black hover:bg-red-600 transition shadow-lg shadow-red-100">REJECT</button>
+                          <button onClick={() => updateStatusIzin(i.id, "Disetujui")} className="bg-green-500 text-white px-4 py-1.5 rounded-lg text-[9px] font-black hover:bg-green-600">SETUJU</button>
+                          <button onClick={() => updateStatusIzin(i.id, "Ditolak")} className="bg-red-500 text-white px-4 py-1.5 rounded-lg text-[9px] font-black hover:bg-red-600">TOLAK</button>
                         </>
                       ) : (
-                        <span className={`text-[10px] font-black uppercase tracking-widest ${i.status === 'Disetujui' ? 'text-green-600' : 'text-red-600'}`}>{i.status}</span>
+                        <span className={`text-[10px] font-black uppercase ${i.status === 'Disetujui' ? 'text-green-600' : 'text-red-600'}`}>{i.status}</span>
                       )}
                     </div>
                   </td>
@@ -301,6 +299,13 @@ export default function AdminDashboard() {
           </table>
         </div>
       )}
+
+      <style jsx global>{`
+        .bg-batik {
+          background-image: url("https://www.transparenttextures.com/patterns/batik.png");
+          background-attachment: fixed;
+        }
+      `}</style>
     </div>
   );
 }
