@@ -22,37 +22,48 @@ export default function HomeAbsensi() {
     const initSistem = async () => {
       try {
         const MODEL_URL = "/models";
-        // Load semua engine AI
+        setPesan("Memuat Model AI...");
+        
+        // Pastikan 3 model ini ada di /public/models
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
           faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
         ]);
 
-        // Ambil data guru dari API untuk referensi wajah
+        setPesan("Sinkron Database...");
         const res = await fetch("https://backendabsen.mejatika.com/api/gurus");
+        if (!res.ok) throw new Error("Gagal ambil data guru dari API");
         const gurus = await res.json();
 
+        setPesan("Mempelajari Wajah...");
         const labeledDescriptors = await Promise.all(
           gurus.map(async (guru: any) => {
             if (!guru.foto_profil) return null;
-            // Fetch foto asli guru untuk dipelajari AI
-            const img = await faceapi.fetchImage(`https://backendabsen.mejatika.com/storage/${guru.foto_profil}`);
-            const fullDesc = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-            return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
+            try {
+              // Path harus sesuai dengan lokasi simpan Laravel
+              const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_profil}`;
+              const img = await faceapi.fetchImage(imgUrl);
+              const fullDesc = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+              return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
+            } catch (e) {
+              console.error(`Gagal muat wajah guru ID: ${guru.id}`);
+              return null;
+            }
           })
         );
 
         const validDescriptors = labeledDescriptors.filter(d => d !== null) as faceapi.LabeledFaceDescriptors[];
+        
         if (validDescriptors.length > 0) {
           setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
           setPesan("⚡ Sistem Siap");
         } else {
-          setPesan("Database Wajah Kosong");
+          setPesan("Data Wajah Kosong");
         }
-      } catch (err) {
-        console.error(err);
-        setPesan("Gagal Inisialisasi");
+      } catch (err: any) {
+        console.error("DEBUG ERROR:", err);
+        setPesan(`Gagal: ${err.message}`); // Menampilkan pesan error asli supaya ketahuan rusaknya dimana
       }
     };
 
@@ -61,7 +72,7 @@ export default function HomeAbsensi() {
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition(
         (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        null,
+        (err) => console.error("GPS Error:", err),
         { enableHighAccuracy: true }
       );
     }
@@ -74,7 +85,6 @@ export default function HomeAbsensi() {
       interval = setInterval(async () => {
         if (webcamRef.current?.video?.readyState === 4) {
           const video = webcamRef.current.video;
-          // Deteksi Wajah + Landmark + Descriptor (untuk Recognition)
           const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
             .withFaceLandmarks()
             .withFaceDescriptor();
@@ -85,11 +95,13 @@ export default function HomeAbsensi() {
           } else {
             const { width } = detection.detection.box;
             
-            // Validasi Jarak Wajah
-            if (width < 90) { setJarakWajah("jauh"); setPesan("Dekatkan Wajah"); }
-            else if (width > 260) { setJarakWajah("dekat"); setPesan("Terlalu Dekat"); }
-            else {
-              // COCOKKAN WAJAH DENGAN DATABASE
+            if (width < 90) { 
+              setJarakWajah("jauh"); 
+              setPesan("Dekatkan Wajah"); 
+            } else if (width > 260) { 
+              setJarakWajah("dekat"); 
+              setPesan("Terlalu Dekat"); 
+            } else {
               const match = faceMatcher.findBestMatch(detection.descriptor);
               
               if (match.label === "unknown") {
@@ -97,7 +109,7 @@ export default function HomeAbsensi() {
                 setPesan("Wajah Tak Dikenal");
               } else {
                 setJarakWajah("pas");
-                setPesan(`Halo! Mengirim Data...`);
+                setPesan(`Mengenali ID: ${match.label}...`);
                 
                 if (coords) {
                   setIsProcessing(true);
@@ -108,7 +120,7 @@ export default function HomeAbsensi() {
             }
           }
         }
-      }, 400); // Speed optimal agar tidak lag
+      }, 500); 
     }
     return () => clearInterval(interval);
   }, [view, faceMatcher, isProcessing, coords]);
@@ -121,22 +133,23 @@ export default function HomeAbsensi() {
         body: JSON.stringify({ guru_id: guruId, lat, lng }),
       });
       if (res.ok) {
-        Swal.fire({ title: "Berhasil!", text: "Wajah Dikenali & Absen Tercatat.", icon: "success", timer: 2000, showConfirmButton: false });
+        Swal.fire({ title: "Berhasil!", text: "Absen Berhasil.", icon: "success", timer: 2000, showConfirmButton: false });
         router.push("/dashboard-absensi");
+      } else {
+        throw new Error("Ditolak Server");
       }
-    } catch (e) {
+    } catch (e: any) {
       setIsProcessing(false);
-      Swal.fire("Gagal", "Masalah Koneksi", "error");
+      Swal.fire("Gagal", e.message, "error");
     }
   };
 
-  // --- UI MENU UTAMA ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
         <div className="w-full max-w-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
           <div className="w-16 h-16 bg-red-600 rounded-2xl mx-auto flex items-center justify-center shadow-xl mb-4 text-white text-3xl font-black italic">⚡</div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase mb-6">Turbo Recognition</h1>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase mb-6 leading-none">Turbo Recognition</h1>
           
           <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 mb-8">
             <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest">Status Sistem:</p>
@@ -148,17 +161,17 @@ export default function HomeAbsensi() {
           <button 
             disabled={!faceMatcher || !coords}
             onClick={() => setView("absen")} 
-            className={`w-full py-4 ${faceMatcher && coords ? 'bg-red-600 hover:scale-105 shadow-lg' : 'bg-slate-300'} text-white rounded-2xl font-black transition-all`}
+            className={`w-full py-4 ${faceMatcher && coords ? 'bg-red-600 hover:scale-105 shadow-lg active:scale-95' : 'bg-slate-300 shadow-none'} text-white rounded-2xl font-black transition-all`}
           >
-            {faceMatcher ? "🚀 MULAI SCAN WAJAH" : "MENYIAPKAN AI..."}
+            {faceMatcher ? "🚀 MULAI SCAN WAJAH" : "MENYIAPKAN SISTEM..."}
           </button>
-          <button onClick={() => router.push("/admin/login")} className="mt-6 text-[11px] font-bold text-slate-400 uppercase tracking-widest">🔐 Admin Login</button>
+          
+          <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest hover:text-red-600 transition-all">🔐 Admin Login</button>
         </div>
       </div>
     );
   }
 
-  // --- UI KAMERA (LAYOUT ATAS + SCANNER + INFO GPS) ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden">
       <div className="w-full max-w-md flex justify-start mt-2 mb-2">
@@ -168,10 +181,8 @@ export default function HomeAbsensi() {
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl mb-6">
         <Webcam ref={webcamRef} audio={false} videoConstraints={videoConstraints} className="w-full h-full object-cover" />
         
-        {/* Fitur: Garis Scanner Laser */}
         <div className={`absolute left-0 w-full h-[2px] bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] z-20 animate-scan ${jarakWajah === 'pas' ? 'hidden' : ''}`}></div>
 
-        {/* Fitur: Info Overlay (Lat, Lng & Progress Bar) */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
             <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4">
                 <div className="flex justify-between items-center mb-3">
@@ -190,7 +201,7 @@ export default function HomeAbsensi() {
                     <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
                         <div className={`h-full bg-red-600 transition-all duration-700 ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}></div>
                     </div>
-                    <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest">{pesan}</span>
+                    <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest leading-none">{pesan}</span>
                 </div>
             </div>
         </div>
