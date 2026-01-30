@@ -17,7 +17,7 @@ export default function HomeAbsensi() {
 
   const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
 
-  // --- 1. LOAD AI, DATABASE WAJAH (FIXED API), & GPS LOCK ---
+  // --- 1. LOAD AI, DATABASE WAJAH (FIXED COLUMN), & GPS LOCK ---
   useEffect(() => {
     const initSistem = async () => {
       try {
@@ -31,21 +31,23 @@ export default function HomeAbsensi() {
         ]);
 
         setPesan("Sinkron Database...");
-        // DISINI PERBAIKANNYA: Sesuai dengan routes/api.php kamu
+        // Memanggil endpoint referensi biometrik
         const res = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
-        if (!res.ok) throw new Error("Gagal ambil data guru dari API");
+        if (!res.ok) throw new Error("Gagal ambil data biometrik");
         const gurus = await res.json();
 
         setPesan("Mempelajari Wajah...");
         const labeledDescriptors = await Promise.all(
           gurus.map(async (guru: any) => {
-            if (!guru.foto_profil) return null;
+            // FIX: Menggunakan foto_referensi sesuai database
+            if (!guru.foto_referensi) return null;
             try {
-              const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_profil}`;
+              const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
               const fullDesc = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
               return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
             } catch (e) {
+              console.error(`Gagal muat wajah ID: ${guru.id}`);
               return null;
             }
           })
@@ -57,7 +59,7 @@ export default function HomeAbsensi() {
           setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
           setPesan("⚡ Sistem Siap");
         } else {
-          setPesan("Database Wajah Kosong");
+          setPesan("Data Wajah Kosong");
         }
       } catch (err: any) {
         console.error("DEBUG:", err);
@@ -140,13 +142,13 @@ export default function HomeAbsensi() {
           <div className="w-16 h-16 bg-red-600 rounded-2xl mx-auto flex items-center justify-center shadow-xl mb-4 text-white text-3xl font-black italic">⚡</div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase mb-6 leading-none">Turbo Recognition</h1>
           <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 mb-8">
-            <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest">Status Sistem:</p>
-            <p className={`text-[12px] font-mono font-bold ${faceMatcher && coords ? "text-green-600" : "text-red-500 animate-pulse"}`}>{pesan}</p>
+            <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest text-left">Status Sistem:</p>
+            <p className={`text-[12px] font-mono font-bold text-left ${faceMatcher && coords ? "text-green-600" : "text-red-500 animate-pulse"}`}>{pesan}</p>
           </div>
-          <button disabled={!faceMatcher || !coords} onClick={() => setView("absen")} className={`w-full py-4 ${faceMatcher && coords ? 'bg-red-600 hover:scale-105 shadow-lg active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black transition-all`}>
+          <button disabled={!faceMatcher || !coords} onClick={() => setView("absen")} className={`w-full py-4 ${faceMatcher && coords ? 'bg-red-600 hover:scale-105 shadow-lg active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black transition-all mb-4`}>
             {faceMatcher ? "🚀 MULAI SCAN WAJAH" : "MENYIAPKAN AI..."}
           </button>
-          <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest hover:text-red-600 transition-all">🔐 Admin Login</button>
+          <button onClick={() => router.push("/admin/login")} className="mt-4 text-[11px] font-bold text-slate-400 uppercase tracking-widest hover:text-red-600 transition-all">🔐 Admin Login</button>
         </div>
       </div>
     );
@@ -160,11 +162,15 @@ export default function HomeAbsensi() {
       </div>
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl mb-6">
         <Webcam ref={webcamRef} audio={false} videoConstraints={videoConstraints} className="w-full h-full object-cover" />
+        
+        {/* FITUR: GARIS SCANNER LASER */}
         <div className={`absolute left-0 w-full h-[2px] bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] z-20 animate-scan ${jarakWajah === 'pas' ? 'hidden' : ''}`}></div>
+
+        {/* FITUR: OVERLAY INFO GPS & PROGRESS */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
             <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-xl">
                 <div className="flex justify-between items-center mb-3 text-white">
-                    <div className="space-y-1">
+                    <div className="space-y-1 text-left">
                         <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
                         <p className="text-[12px] font-mono font-bold leading-none">{coords ? coords.lat.toFixed(7) : "Searching..."}</p>
                     </div>
@@ -178,7 +184,7 @@ export default function HomeAbsensi() {
                     <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
                         <div className={`h-full bg-red-600 transition-all duration-700 ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}></div>
                     </div>
-                    <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest">{pesan}</span>
+                    <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest leading-none">{pesan}</span>
                 </div>
             </div>
         </div>
