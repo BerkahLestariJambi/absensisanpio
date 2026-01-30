@@ -15,16 +15,13 @@ export default function HomeAbsensi() {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const router = useRouter();
 
-  // Koordinat Sekolah
   const schoolCoords = { lat: -6.2000, lng: 106.8000 };
   const maxRadius = 50;
 
-  // 1. LOAD MODELS (Pastikan file ada di public/models)
   useEffect(() => {
     const loadModels = async () => {
       try {
         const MODEL_URL = "/models";
-        // Memastikan face-api hanya berjalan di client side
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
         setModelsLoaded(true);
       } catch (err) {
@@ -35,36 +32,24 @@ export default function HomeAbsensi() {
     loadModels();
   }, []);
 
-  // 2. DETEKSI BIOMETRIK REAL-TIME
   useEffect(() => {
     let interval: any;
-    
     if (view === "absen" && modelsLoaded && !isProcessing) {
       interval = setInterval(async () => {
         if (webcamRef.current && webcamRef.current.video?.readyState === 4) {
           const video = webcamRef.current.video;
-          
-          const detection = await faceapi.detectSingleFace(
-            video,
-            new faceapi.TinyFaceDetectorOptions()
-          );
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
 
           if (!detection) {
             setJarakWajah("none");
           } else {
             const { width } = detection.box;
-            
-            // Logika akurasi jarak biometrik
-            if (width < 130) {
-              setJarakWajah("jauh");
-            } else if (width > 260) {
-              setJarakWajah("dekat");
-            } else {
+            if (width < 130) setJarakWajah("jauh");
+            else if (width > 260) setJarakWajah("dekat");
+            else {
               setJarakWajah("pas");
-              // Auto-capture jika GPS sudah terkunci
               if (coords && !isProcessing) {
-                // Hentikan interval segera setelah posisi "pas" ditemukan
-                clearInterval(interval); 
+                clearInterval(interval);
                 handleAutoCapture();
               }
             }
@@ -76,13 +61,10 @@ export default function HomeAbsensi() {
   }, [view, modelsLoaded, coords, isProcessing]);
 
   const handleAutoCapture = () => {
-    // Delay 1.5 detik agar user sempat melihat instruksi "POSISI PAS"
     setTimeout(() => {
       if (webcamRef.current) {
         const image = webcamRef.current.getScreenshot();
-        if (image && coords) {
-          ambilFotoOtomatis(image, coords.lat, coords.lng);
-        }
+        if (image && coords) ambilFotoOtomatis(image, coords.lat, coords.lng);
       }
     }, 1500);
   };
@@ -102,10 +84,8 @@ export default function HomeAbsensi() {
       (pos) => {
         const distance = calculateDistance(pos.coords.latitude, pos.coords.longitude, schoolCoords.lat, schoolCoords.lng);
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        
-        if (distance <= maxRadius) {
-          setPesan("Lokasi Sesuai");
-        } else {
+        if (distance <= maxRadius) setPesan("Lokasi Sesuai");
+        else {
           setPesan("Di Luar Area");
           Swal.fire("Akses Ditolak", `Jarak Anda ${Math.round(distance)}m dari sekolah.`, "error");
         }
@@ -118,38 +98,32 @@ export default function HomeAbsensi() {
   const ambilFotoOtomatis = async (image: string, lat: number, lng: number) => {
     if (isProcessing) return;
     setIsProcessing(true);
-    
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image, lat, lng }),
       });
-      
       if (res.ok) {
         Swal.fire({ title: "Berhasil!", text: "Absensi Terekam", icon: "success", timer: 1500, showConfirmButton: false });
         router.push("/admin/dashboard");
-      } else {
-        throw new Error("Gagal kirim");
-      }
+      } else throw new Error("Gagal kirim");
     } catch (error) {
       setIsProcessing(false);
-      setJarakWajah("none"); // Reset agar bisa coba lagi
+      setJarakWajah("none");
       Swal.fire("Error", "Gagal mengirim data ke server.", "error");
     }
   };
 
-  // Tampilan Menu
   if (view === "menu") {
     return (
-      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-sm bg-white rounded-[40px] shadow-2xl p-10 text-center border border-slate-200">
+      <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
+        <div className="w-full max-w-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
           <div className="w-20 h-20 bg-red-600 rounded-3xl mx-auto flex items-center justify-center shadow-xl mb-4">
             <span className="text-white text-3xl font-black">S</span>
           </div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase">Sanpio System</h1>
-          <p className="text-slate-400 text-[10px] tracking-widest mt-1 mb-8">BIOMETRIC ATTENDANCE</p>
-          
+          <p className="text-amber-800 font-bold text-[10px] tracking-widest mt-1 mb-8 italic">PANCASILA & BUDAYA</p>
           <div className="space-y-4">
             <button 
               disabled={!modelsLoaded}
@@ -158,7 +132,7 @@ export default function HomeAbsensi() {
             >
               {modelsLoaded ? "🚀 MULAI ABSENSI" : "MENYIAPKAN AI..."}
             </button>
-            <button onClick={() => router.push("/admin/login")} className="w-full py-4 bg-white text-slate-700 border-2 border-slate-100 rounded-2xl font-bold hover:bg-slate-50 transition-all active:scale-95">
+            <button onClick={() => router.push("/admin/login")} className="w-full py-4 bg-white text-slate-700 border-2 border-amber-100 rounded-2xl font-bold hover:bg-amber-50 transition-all active:scale-95">
               🔐 LOGIN ADMIN
             </button>
           </div>
@@ -167,24 +141,17 @@ export default function HomeAbsensi() {
     );
   }
 
-  // Tampilan Kamera
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 relative font-sans text-white">
-      <button onClick={() => { setView("menu"); setJarakWajah("none"); setIsProcessing(false); }} className="absolute top-6 left-6 z-50 bg-white/10 px-4 py-2 rounded-xl backdrop-blur-md text-xs font-bold border border-white/10">
+    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative font-sans bg-batik">
+      <button onClick={() => { setView("menu"); setJarakWajah("none"); setIsProcessing(false); }} className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-xs font-bold shadow-lg active:scale-90">
         ← BATAL
       </button>
 
-      <div className="relative w-full max-w-md aspect-[3/4] rounded-[30px] overflow-hidden border border-white/10 bg-slate-900 shadow-[0_0_60px_rgba(220,38,38,0.2)]">
-        <Webcam 
-          ref={webcamRef} 
-          audio={false} 
-          screenshotFormat="image/jpeg" 
-          videoConstraints={{ facingMode: "user" }} 
-          className="w-full h-full object-cover grayscale-[0.2]" 
-        />
+      <div className="relative w-full max-w-md aspect-[3/4] rounded-[30px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
+        <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "user" }} className="w-full h-full object-cover grayscale-[0.2]" />
         
         {/* FRAME SCANNER */}
-        <div className="absolute inset-0 z-20 flex items-center justify-center">
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
             <div className={`relative w-72 h-72 transition-all duration-500 ${jarakWajah === 'pas' ? 'scale-105' : 'scale-100'}`}>
                 <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-red-600 rounded-tl-xl"></div>
                 <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-red-600 rounded-tr-xl"></div>
@@ -194,10 +161,10 @@ export default function HomeAbsensi() {
             </div>
         </div>
 
-        {/* OVERLAY INSTRUKSI */}
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-between py-12 pointer-events-none">
-          <div className="bg-black/70 backdrop-blur-md border border-white/10 px-6 py-3 rounded-2xl">
-            <p className="text-red-500 font-black text-sm tracking-widest uppercase">
+        {/* OVERLAY KOORDINAT & INSTRUKSI */}
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-between py-10 pointer-events-none">
+          <div className="bg-white/90 backdrop-blur-md border border-amber-200 px-6 py-3 rounded-2xl shadow-xl">
+            <p className="text-red-600 font-black text-sm tracking-widest uppercase">
               {jarakWajah === "pas" && "✅ Posisi Pas! Tahan..."}
               {jarakWajah === "jauh" && "❌ Dekatkan Wajah"}
               {jarakWajah === "dekat" && "❌ Terlalu Dekat"}
@@ -205,16 +172,35 @@ export default function HomeAbsensi() {
             </p>
           </div>
 
-          <div className="w-full px-10 text-center space-y-3">
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden w-48 mx-auto">
+          <div className="w-full px-6 space-y-3">
+            {/* BOX KOORDINAT */}
+            <div className="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-center">
+               <div className="flex justify-around items-center">
+                  <div className="text-left">
+                    <p className="text-[9px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
+                    <p className="text-xs font-mono text-white font-bold">{coords ? coords.lat.toFixed(6) : "Fetching..."}</p>
+                  </div>
+                  <div className="w-[1px] h-8 bg-white/20"></div>
+                  <div className="text-left">
+                    <p className="text-[9px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
+                    <p className="text-xs font-mono text-white font-bold">{coords ? coords.lng.toFixed(6) : "Fetching..."}</p>
+                  </div>
+               </div>
+               <p className="text-[10px] text-amber-200 mt-2 font-bold tracking-tighter uppercase italic">{pesan}</p>
+            </div>
+            
+            <div className="h-1.5 bg-white/20 rounded-full overflow-hidden w-full mx-auto">
               <div className={`h-full bg-red-600 transition-all duration-700 ${jarakWajah === "pas" ? "w-full" : "w-0"}`}></div>
             </div>
-            <p className="text-[10px] text-white/40 tracking-[0.4em] font-bold uppercase italic">{pesan}</p>
           </div>
         </div>
       </div>
 
       <style jsx global>{`
+        .bg-batik {
+          background-color: #fdf5e6;
+          background-image: url("https://www.transparenttextures.com/patterns/batik.png");
+        }
         @keyframes scan-red {
           0% { top: 5%; opacity: 0.2; }
           50% { opacity: 1; }
