@@ -21,7 +21,7 @@ export default function HomeAbsensi() {
     facingMode: "user" as const,
   };
 
-  // 1. LOAD MODEL AI (Hanya untuk validasi kehadiran fisik)
+  // 1. AUTO LOCK GPS & LOAD MODELS
   useEffect(() => {
     const loadModels = async () => {
       try {
@@ -33,9 +33,20 @@ export default function HomeAbsensi() {
       }
     };
     loadModels();
+
+    if ("geolocation" in navigator) {
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        },
+        (err) => console.error("GPS Error:", err),
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+      );
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
   }, []);
 
-  // 2. DETEKSI WAJAH & TRIGGER KIRIM
+  // 2. DETEKSI WAJAH & AUTO SUBMIT
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
@@ -60,17 +71,11 @@ export default function HomeAbsensi() {
             } else {
               setJarakWajah("pas");
               setPesan("⚡ TERDETEKSI!");
-              setIsProcessing(true);
-              clearInterval(interval);
               
-              // Verifikasi Koordinat sebelum kirim
-              if (coords && coords.lat !== 0) {
+              if (coords) {
+                setIsProcessing(true);
+                clearInterval(interval);
                 sendToServer(coords.lat, coords.lng);
-              } else {
-                setIsProcessing(false);
-                setPesan("GPS Belum Siap");
-                Swal.fire("GPS Lemah", "Tunggu koordinat muncul di layar", "warning");
-                setView("menu");
               }
             }
           }
@@ -80,49 +85,28 @@ export default function HomeAbsensi() {
     return () => clearInterval(interval);
   }, [view, modelsLoaded, isProcessing, coords]);
 
-  // 3. KIRIM DATA TEKS SAJA (Ringan & Cepat)
   const sendToServer = async (lat: number, lng: number) => {
     setPesan("🚀 Mengirim...");
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json", 
-          "Accept": "application/json" 
-        },
-        body: JSON.stringify({ 
-          lat: lat, 
-          lng: lng,
-          // image: null // Kita tidak mengirim image agar tidak berat
-        }),
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ lat, lng }),
       });
       
       const responseData = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        Swal.fire({ title: "Berhasil!", text: "Absen tercatat tanpa upload foto.", icon: "success", timer: 1500, showConfirmButton: false });
+        Swal.fire({ title: "Berhasil!", text: "Absen tercatat.", icon: "success", timer: 1500, showConfirmButton: false });
         router.push("/dashboard-absensi");
       } else {
-        throw new Error(responseData.message || "Ditolak oleh sistem");
+        throw new Error(responseData.message || "Ditolak Server");
       }
     } catch (e: any) {
       setIsProcessing(false);
       setJarakWajah("none");
       Swal.fire("Gagal", e.message, "error");
-      setPesan("Gagal Simpan");
     }
-  };
-
-  const startAbsenFlow = () => {
-    setPesan("🛰️ Mencari Satelit...");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setView("absen");
-      },
-      (err) => Swal.fire("GPS Mati", "Aktifkan lokasi di pengaturan HP", "error"),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
   };
 
   if (view === "menu") {
@@ -133,22 +117,21 @@ export default function HomeAbsensi() {
             <span className="text-white text-3xl font-black italic">⚡</span>
           </div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none">Turbo Absen</h1>
-          <p className="text-amber-800 font-bold text-[10px] tracking-widest mt-2 mb-8 italic uppercase opacity-50">Sanpio System</p>
           
-          <div className="space-y-4">
+          <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-100">
+            <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest">Status Koordinat:</p>
+            <p className={`text-[12px] font-mono font-bold ${coords ? "text-green-600" : "text-red-500 animate-pulse"}`}>
+              {coords ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` : "🛰️ MENCARI SATELIT..."}
+            </p>
+          </div>
+          
+          <div className="space-y-4 mt-8">
             <button 
-              disabled={!modelsLoaded}
-              onClick={startAbsenFlow} 
-              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700 active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
+              disabled={!modelsLoaded || !coords}
+              onClick={() => setView("absen")} 
+              className={`w-full py-4 ${modelsLoaded && coords ? 'bg-red-600 hover:scale-105 active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
             >
-              {modelsLoaded ? "🚀 MULAI ABSEN" : "MEMUAT AI..."}
-            </button>
-
-            <button 
-              onClick={() => router.push("/admin/login")} 
-              className="w-full py-4 bg-white text-slate-700 border-2 border-amber-100 rounded-2xl font-bold hover:bg-amber-50 transition-all active:scale-95"
-            >
-              🔐 LOGIN ADMIN
+              {modelsLoaded && coords ? "🚀 MULAI ABSEN" : "MENGUNCI SISTEM..."}
             </button>
           </div>
         </div>
@@ -157,51 +140,29 @@ export default function HomeAbsensi() {
   }
 
   return (
-    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative bg-batik overflow-hidden">
-      <button 
-        onClick={() => { setView("menu"); setIsProcessing(false); }} 
-        className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg"
-      >
-        ← BATAL
-      </button>
+    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden">
+      {/* Tombol Batal Tetap di Atas */}
+      <div className="w-full max-w-md flex justify-start mt-4 mb-4">
+        <button onClick={() => { setView("menu"); setIsProcessing(false); }} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg z-50">
+          ← BATAL
+        </button>
+      </div>
 
-      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
-        <Webcam 
-          ref={webcamRef} 
-          audio={false} 
-          screenshotFormat="image/jpeg" 
-          videoConstraints={videoConstraints} 
-          className="w-full h-full object-cover" 
-        />
+      {/* Frame Kamera Lebih ke Atas */}
+      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl mb-20">
+        <Webcam ref={webcamRef} audio={false} videoConstraints={videoConstraints} className="w-full h-full object-cover" />
         
-        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-            <div className={`relative w-64 h-64 border-2 rounded-full transition-all duration-300 ${jarakWajah === 'pas' ? 'border-green-400 scale-110' : 'border-white/20'}`}>
-                <div className={`absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin-slow ${jarakWajah === 'pas' ? 'opacity-0' : 'opacity-100'}`}></div>
-            </div>
+        {/* Indikator Status (Tanpa Bulatan Tengah) */}
+        <div className="absolute top-0 w-full p-4 z-30">
+          <div className={`text-center py-2 rounded-2xl backdrop-blur-md border ${jarakWajah === 'pas' ? 'bg-green-500/20 border-green-400' : 'bg-black/20 border-white/20'}`}>
+            <span className="text-[11px] text-white font-black uppercase italic tracking-widest">{pesan}</span>
+          </div>
         </div>
+      </div>
 
-        <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
-                <div className="flex justify-between items-center mb-3">
-                    <div className="space-y-1">
-                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
-                        <p className="text-[12px] font-mono text-white font-bold">{coords ? coords.lat.toFixed(7) : "Searching..."}</p>
-                    </div>
-                    <div className="w-[1px] h-6 bg-white/20"></div>
-                    <div className="space-y-1 text-right">
-                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
-                        <p className="text-[12px] font-mono text-white font-bold">{coords ? coords.lng.toFixed(7) : "Searching..."}</p>
-                    </div>
-                </div>
-                
-                <div className="flex items-center gap-3 border-t border-white/10 pt-3">
-                    <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div className={`h-full bg-red-600 transition-all duration-700 ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}></div>
-                    </div>
-                    <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest">{pesan}</span>
-                </div>
-            </div>
-        </div>
+      {/* Watermark/Info di Bawah Kamera */}
+      <div className="w-full max-w-md px-6 text-center opacity-30">
+        <p className="text-slate-800 font-black text-[10px] tracking-[0.3em] uppercase italic">Sanpio High-Speed System</p>
       </div>
 
       <style jsx global>{`
