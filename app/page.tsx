@@ -9,9 +9,9 @@ export default function HomeAbsensi() {
   const [view, setView] = useState<"menu" | "absen">("menu");
   const webcamRef = useRef<Webcam>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [pesan, setPesan] = useState("Menyiapkan AI...");
+  const [pesan, setPesan] = useState("Menyiapkan Sistem...");
   const [jarakWajah, setJarakWajah] = useState<"pas" | "jauh" | "dekat" | "none">("none");
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false); // Kunci utama duplikasi
   const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const router = useRouter();
 
@@ -46,7 +46,7 @@ export default function HomeAbsensi() {
         const validDescriptors = labeledDescriptors.filter(d => d !== null) as faceapi.LabeledFaceDescriptors[];
         if (validDescriptors.length > 0) {
           setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
-          setPesan("⚡ Scanner Siap");
+          if (view === "menu") setPesan("⚡ Scanner Siap");
         }
       } catch (err) {
         console.error("Init Error:", err);
@@ -59,24 +59,26 @@ export default function HomeAbsensi() {
     }
   }, []);
 
-  // --- 2. LOGIKA SCAN & INSTRUKSI ---
+  // --- 2. LOGIKA SCAN & INSTRUKSI (ANTI DUPLIKAT) ---
   useEffect(() => {
     let interval: any;
+    
+    // Scan hanya berjalan jika view='absen', AI sudah siap, dan TIDAK sedang processing
     if (view === "absen" && !isProcessing) {
       interval = setInterval(async () => {
-        if (webcamRef.current?.video?.readyState === 4) {
+        if (webcamRef.current?.video?.readyState === 4 && !isProcessing) {
           const video = webcamRef.current.video;
           
-          // Deteksi wajah dulu (Cepat)
-          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptor();
 
           if (!detection) {
             setJarakWajah("none");
-            setPesan("Mencari Wajah...");
+            setPesan("Sedang Proses biometrik...");
           } else {
             const { width } = detection.detection.box;
 
-            // 1. Validasi Jarak
             if (width < 100) {
               setJarakWajah("jauh");
               setPesan("Dekatkan Wajah...");
@@ -86,18 +88,17 @@ export default function HomeAbsensi() {
             } else {
               setJarakWajah("pas");
               
-              // 2. Jika AI Referensi sudah siap, mulai mencocokkan
               if (faceMatcher) {
                 setPesan("Wajah Pas, Tahan...");
                 const match = faceMatcher.findBestMatch(detection.descriptor);
                 
                 if (match.label !== "unknown") {
-                  setPesan("Dikenali! Mengirim...");
-                  if (coords) {
-                    setIsProcessing(true);
-                    clearInterval(interval);
-                    sendToServer(match.label, coords.lat, coords.lng);
-                  }
+                  // PENGUNCIAN INSTAN: Sebelum panggil sendToServer
+                  setIsProcessing(true); 
+                  clearInterval(interval); 
+                  
+                  setPesan("Berhasil! Mengirim Data...");
+                  sendToServer(match.label, coords?.lat || 0, coords?.lng || 0);
                 } else {
                   setPesan("Wajah Tidak Dikenal");
                 }
@@ -107,7 +108,7 @@ export default function HomeAbsensi() {
             }
           }
         }
-      }, 400); // Frame rate tinggi agar responsif
+      }, 500); 
     }
     return () => clearInterval(interval);
   }, [view, faceMatcher, isProcessing, coords]);
@@ -119,17 +120,27 @@ export default function HomeAbsensi() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ guru_id: guruId, lat, lng }),
       });
+
       if (res.ok) {
-        Swal.fire({ title: "Berhasil!", text: "Absen Tercatat.", icon: "success", timer: 1500, showConfirmButton: false });
-        router.push("/dashboard-absensi");
+        Swal.fire({ 
+          title: "Berhasil!", 
+          text: "Absensi Anda telah tercatat.", 
+          icon: "success", 
+          timer: 2000, 
+          showConfirmButton: false 
+        });
+        setTimeout(() => router.push("/dashboard-absensi"), 2000);
+      } else {
+        throw new Error("Gagal menyimpan ke database");
       }
     } catch (e) {
+      // Jika gagal, buka kunci agar bisa coba scan lagi
       setIsProcessing(false);
-      Swal.fire("Gagal", "Masalah Koneksi", "error");
+      setPesan("Gagal, Mencoba lagi...");
+      Swal.fire("Gagal", "Koneksi terputus atau server error", "error");
     }
   };
 
-  // --- UI MENU (SANGAT BERSIH) ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -148,41 +159,44 @@ export default function HomeAbsensi() {
     );
   }
 
-  // --- UI KAMERA (LAYOUT ATAS + SCANNER + PESAN DINAMIS) ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden">
       <div className="w-full max-w-md flex justify-start mt-2 mb-2">
-        <button onClick={() => { setView("menu"); setIsProcessing(false); }} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black z-50 shadow-lg">← KEMBALI</button>
+        <button 
+          onClick={() => { setView("menu"); setIsProcessing(false); }} 
+          className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black z-50 shadow-lg"
+        >
+          ← KEMBALI
+        </button>
       </div>
 
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl mb-6">
         <Webcam ref={webcamRef} audio={false} videoConstraints={videoConstraints} className="w-full h-full object-cover" />
         
-        {/* LASER SCANNER */}
+        {/* LASER SCANNER ANIMATION */}
         <div className={`absolute left-0 w-full h-[3px] bg-red-500 shadow-[0_0_20px_rgba(239,68,68,1)] z-20 animate-scan ${jarakWajah === 'pas' ? 'opacity-30' : ''}`}></div>
 
-        {/* OVERLAY STATUS & GPS */}
+        {/* INFO OVERLAY */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/95 via-black/40 to-transparent pt-12 pb-6 px-6">
             <div className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-4 shadow-2xl">
                 <div className="flex justify-between items-center mb-3 text-white">
-                    <div className="space-y-1">
+                    <div className="space-y-1 text-left">
                         <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
-                        <p className="text-[11px] font-mono font-bold">{coords ? coords.lat.toFixed(7) : "Locking..."}</p>
+                        <p className="text-[11px] font-mono font-bold leading-none">{coords ? coords.lat.toFixed(7) : "Locking..."}</p>
                     </div>
                     <div className="w-[1px] h-6 bg-white/20"></div>
                     <div className="space-y-1 text-right">
                         <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
-                        <p className="text-[11px] font-mono font-bold">{coords ? coords.lng.toFixed(7) : "Locking..."}</p>
+                        <p className="text-[11px] font-mono font-bold leading-none">{coords ? coords.lng.toFixed(7) : "Locking..."}</p>
                     </div>
                 </div>
                 
-                {/* PESAN INSTRUKSI BESAR */}
                 <div className="border-t border-white/10 pt-3 flex flex-col items-center">
-                    <span className={`text-[14px] font-black uppercase italic tracking-tighter transition-all ${jarakWajah === 'pas' ? 'text-green-400 scale-110' : 'text-amber-300'}`}>
+                    <span className={`text-[14px] font-black uppercase italic tracking-tighter transition-all duration-300 ${jarakWajah === 'pas' ? 'text-green-400 scale-110' : 'text-amber-300'}`}>
                       {pesan}
                     </span>
                     <div className="w-full h-1.5 bg-white/10 rounded-full mt-2 overflow-hidden">
-                        <div className={`h-full bg-red-600 transition-all duration-500 ${jarakWajah === "pas" ? "w-full" : "w-1/4"}`}></div>
+                        <div className={`h-full bg-red-600 transition-all duration-700 ${jarakWajah === "pas" ? "w-full" : "w-1/4"}`}></div>
                     </div>
                 </div>
             </div>
