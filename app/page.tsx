@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
 import Webcam from "react-webcam";
+import * as faceapi from "face-api.js";
 import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
 
@@ -11,24 +12,63 @@ export default function HomeAbsensi() {
   const [pesan, setPesan] = useState("Mencari Sinyal GPS...");
   const [jarakWajah, setJarakWajah] = useState<"pas" | "jauh" | "dekat" | "none">("none");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
   const router = useRouter();
 
-  // Konfigurasi Lokasi
   const schoolCoords = { lat: -6.2000, lng: 106.8000 };
   const maxRadius = 50;
 
+  // 1. LOAD MODELS (Hanya sekali saat aplikasi dibuka)
   useEffect(() => {
-    if (view === "absen") {
-      const interval = setInterval(() => {
-        // Simulasi logika deteksi jarak wajah sederhana
-        const randomDist = Math.random(); 
-        if (randomDist > 0.8) setJarakWajah("dekat");
-        else if (randomDist < 0.2) setJarakWajah("jauh");
-        else setJarakWajah("pas");
-      }, 2000);
-      return () => clearInterval(interval);
+    const loadModels = async () => {
+      try {
+        const MODEL_URL = "/models";
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        ]);
+        setModelsLoaded(true);
+      } catch (err) {
+        console.error("Gagal load model AI", err);
+      }
+    };
+    loadModels();
+  }, []);
+
+  // 2. DETEKSI BIOMETRIK REAL-TIME
+  useEffect(() => {
+    let interval: any;
+    if (view === "absen" && modelsLoaded && !isProcessing) {
+      interval = setInterval(async () => {
+        if (webcamRef.current && webcamRef.current.video?.readyState === 4) {
+          const video = webcamRef.current.video;
+          const detection = await faceapi.detectSingleFace(
+            video,
+            new faceapi.TinyFaceDetectorOptions()
+          );
+
+          if (!detection) {
+            setJarakWajah("none");
+          } else {
+            const { width } = detection.box;
+            // Logika akurasi jarak biometrik (lebar kotak wajah)
+            if (width < 120) {
+              setJarakWajah("jauh");
+            } else if (width > 240) {
+              setJarakWajah("dekat");
+            } else {
+              setJarakWajah("pas");
+              // Jika sudah pas dan lokasi sudah ada, tembak API
+              if (coords && !isProcessing) {
+                // Memberi sedikit jeda agar user tahu posisi sudah pas
+                setTimeout(() => ambilFotoOtomatis(coords.lat, coords.lng), 1000);
+              }
+            }
+          }
+        }
+      }, 500); // Scan setiap 0.5 detik
     }
-  }, [view]);
+    return () => clearInterval(interval);
+  }, [view, modelsLoaded, coords, isProcessing]);
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3;
@@ -47,7 +87,6 @@ export default function HomeAbsensi() {
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         if (distance <= maxRadius) {
           setPesan("Lokasi Sesuai");
-          setTimeout(() => ambilFotoOtomatis(pos.coords.latitude, pos.coords.longitude), 4000);
         } else {
           setPesan("Di Luar Area Sekolah");
           Swal.fire("Akses Ditolak", "Anda berada di luar radius.", "error");
@@ -59,22 +98,25 @@ export default function HomeAbsensi() {
   };
 
   const ambilFotoOtomatis = async (lat: number, lng: number) => {
-    if (webcamRef.current && !isProcessing) {
-      setIsProcessing(true);
-      const image = webcamRef.current.getScreenshot();
-      try {
-        const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image, lat, lng }),
-        });
-        if (res.ok) {
-          Swal.fire({ title: "Berhasil!", text: "Absensi Terekam", icon: "success", timer: 1500, showConfirmButton: false });
-          router.push("/admin/dashboard");
-        }
-      } catch (error) {
-        setIsProcessing(false);
+    if (isProcessing) return;
+    setIsProcessing(true);
+    
+    const image = webcamRef.current?.getScreenshot();
+    
+    try {
+      const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image, lat, lng }),
+      });
+      
+      if (res.ok) {
+        Swal.fire({ title: "Berhasil!", text: "Absensi Terekam", icon: "success", timer: 1500, showConfirmButton: false });
+        router.push("/admin/dashboard");
       }
+    } catch (error) {
+      setIsProcessing(false);
+      setPesan("Gagal Kirim Data");
     }
   };
 
@@ -87,8 +129,12 @@ export default function HomeAbsensi() {
           </div>
           <h1 className="text-2xl font-black text-slate-800">SANPIO SYSTEM</h1>
           <div className="space-y-4 mt-8">
-            <button onClick={() => { setView("absen"); getInitialLocation(); }} className="w-full py-4 bg-red-600 text-white rounded-2xl font-bold shadow-lg shadow-red-200 active:scale-95 transition-all">
-              🚀 MULAI ABSENSI
+            <button 
+              disabled={!modelsLoaded}
+              onClick={() => { setView("absen"); getInitialLocation(); }} 
+              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600' : 'bg-slate-400'} text-white rounded-2xl font-bold shadow-lg transition-all active:scale-95`}
+            >
+              {modelsLoaded ? "🚀 MULAI ABSENSI" : "LOADING AI..."}
             </button>
             <button onClick={() => router.push("/admin/login")} className="w-full py-4 bg-white text-slate-700 border-2 border-slate-200 rounded-2xl font-bold hover:bg-slate-50 transition-all active:scale-95">
               🔐 LOGIN ADMIN
@@ -101,7 +147,7 @@ export default function HomeAbsensi() {
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 relative font-sans text-white">
-      <button onClick={() => setView("menu")} className="absolute top-6 left-6 z-50 bg-white/10 px-4 py-2 rounded-xl backdrop-blur-md text-xs font-bold border border-white/10">
+      <button onClick={() => { setView("menu"); setJarakWajah("none"); }} className="absolute top-6 left-6 z-50 bg-white/10 px-4 py-2 rounded-xl backdrop-blur-md text-xs font-bold border border-white/10">
         ← BATAL
       </button>
 
@@ -115,13 +161,11 @@ export default function HomeAbsensi() {
                 <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-red-600 rounded-tr-xl"></div>
                 <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-red-600 rounded-bl-xl"></div>
                 <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-red-600 rounded-br-xl"></div>
-                
-                {/* Garis Scanner Merah */}
                 <div className="absolute w-full h-[3px] bg-red-500 shadow-[0_0_20px_rgba(220,38,38,0.9)] animate-scan-red"></div>
             </div>
         </div>
 
-        {/* INSTRUKSI DINAMIS */}
+        {/* INSTRUKSI DINAMIS BIOMETRIK */}
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-between py-12 pointer-events-none">
           <div className="bg-black/60 backdrop-blur-md border border-white/10 px-6 py-2 rounded-full">
             <p className="text-red-500 font-black text-sm tracking-widest animate-pulse">
@@ -135,7 +179,7 @@ export default function HomeAbsensi() {
           <div className="w-full px-10 text-center space-y-2">
             <p className="text-[10px] text-white/50 tracking-[0.3em] font-light">SYSTEM BIOMETRIC SCAN V.2</p>
             <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-red-600 animate-loading"></div>
+              <div className={`h-full bg-red-600 ${jarakWajah === "pas" ? "animate-loading" : "w-0"}`}></div>
             </div>
             <p className="text-[9px] text-red-500/80 font-mono mt-1">{pesan}</p>
           </div>
@@ -152,12 +196,8 @@ export default function HomeAbsensi() {
           0% { width: 0%; }
           100% { width: 100%; }
         }
-        .animate-scan-red {
-          animation: scan-red 2s infinite ease-in-out;
-        }
-        .animate-loading {
-          animation: loading 4s linear;
-        }
+        .animate-scan-red { animation: scan-red 2s infinite ease-in-out; }
+        .animate-loading { animation: loading 1.5s linear; }
       `}</style>
     </div>
   );
