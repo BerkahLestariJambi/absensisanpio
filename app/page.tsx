@@ -5,6 +5,12 @@ import * as faceapi from "face-api.js";
 import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
 
+// Interface untuk data guru
+interface Guru {
+  id: number;
+  foto_referensi: string;
+}
+
 export default function HomeAbsensi() {
   const [view, setView] = useState<"menu" | "absen">("menu");
   const webcamRef = useRef<Webcam>(null);
@@ -13,44 +19,93 @@ export default function HomeAbsensi() {
   const [jarakWajah, setJarakWajah] = useState<"pas" | "jauh" | "dekat" | "none">("none");
   const [isProcessing, setIsProcessing] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null); // Penampung data wajah guru
   const router = useRouter();
 
   const schoolCoords = { lat: -6.2000, lng: 106.8000 };
   const maxRadius = 50;
 
+  // 1. MODIFIKASI: Load semua model & Referensi Wajah Guru
   useEffect(() => {
-    const loadModels = async () => {
+    const loadEverything = async () => {
       try {
         const MODEL_URL = "/models";
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        // Load semua model yang diperlukan untuk Recognition
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        ]);
+
+        // Ambil foto referensi dari backend
+        const res = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
+        if (res.ok) {
+          const gurus: Guru[] = await res.json();
+          
+          const labeledDescriptors = await Promise.all(
+            gurus.map(async (g) => {
+              try {
+                const img = await faceapi.fetchImage(`https://backendabsen.mejatika.com/storage/${g.foto_referensi}`);
+                const detection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+                
+                if (detection) {
+                  return new faceapi.LabeledFaceDescriptors(g.id.toString(), [detection.descriptor]);
+                }
+                return null;
+              } catch (e) {
+                return null;
+              }
+            })
+          );
+
+          const validDescriptors = labeledDescriptors.filter((d): d is faceapi.LabeledFaceDescriptors => d !== null);
+          if (validDescriptors.length > 0) {
+            setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
+          }
+        }
+
         setModelsLoaded(true);
       } catch (err) {
         console.error("Gagal load model AI:", err);
         setPesan("Gagal memuat sistem AI");
       }
     };
-    loadModels();
+    loadEverything();
   }, []);
 
+  // 2. MODIFIKASI: Deteksi Wajah dengan Recognition
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
       interval = setInterval(async () => {
         if (webcamRef.current && webcamRef.current.video?.readyState === 4) {
           const video = webcamRef.current.video;
-          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
+          
+          // Deteksi dengan Landmark & Descriptor untuk pencocokan
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptor();
 
           if (!detection) {
             setJarakWajah("none");
           } else {
-            const { width } = detection.box;
+            const { width } = (detection as any).detection.box;
             if (width < 130) setJarakWajah("jauh");
             else if (width > 260) setJarakWajah("dekat");
             else {
               setJarakWajah("pas");
-              if (coords && !isProcessing) {
-                clearInterval(interval);
-                handleAutoCapture();
+              
+              // Jika koordinat ada dan AI matcher siap, cek siapa wajah ini
+              if (coords && faceMatcher && !isProcessing) {
+                const match = faceMatcher.findBestMatch(detection.descriptor);
+                if (match.label !== "unknown") {
+                  clearInterval(interval);
+                  handleAutoCapture(match.label); // Kirim ID guru yang terdeteksi
+                } else {
+                  setPesan("Wajah Tidak Dikenali");
+                }
               }
             }
           }
@@ -58,15 +113,16 @@ export default function HomeAbsensi() {
       }, 600);
     }
     return () => clearInterval(interval);
-  }, [view, modelsLoaded, coords, isProcessing]);
+  }, [view, modelsLoaded, coords, isProcessing, faceMatcher]);
 
-  const handleAutoCapture = () => {
+  // 3. MODIFIKASI: Tambahkan ID Guru ke fungsi capture
+  const handleAutoCapture = (guruId: string) => {
     setTimeout(() => {
       if (webcamRef.current) {
         const image = webcamRef.current.getScreenshot();
-        if (image && coords) ambilFotoOtomatis(image, coords.lat, coords.lng);
+        if (image && coords) ambilFotoOtomatis(image, coords.lat, coords.lng, guruId);
       }
-    }, 1500);
+    }, 1000);
   };
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -95,14 +151,21 @@ export default function HomeAbsensi() {
     );
   };
 
-  const ambilFotoOtomatis = async (image: string, lat: number, lng: number) => {
+  // 4. MODIFIKASI: Tambahkan guru_id ke POST body
+  const ambilFotoOtomatis = async (image: string, lat: number, lng: number, guruId: string) => {
     if (isProcessing) return;
     setIsProcessing(true);
+    setPesan("Verifikasi Berhasil...");
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image, lat, lng }),
+        body: JSON.stringify({ 
+          image, 
+          lat, 
+          lng,
+          guru_id: guruId // ID Guru yang terdeteksi AI
+        }),
       });
       if (res.ok) {
         Swal.fire({ title: "Berhasil!", text: "Absensi Terekam", icon: "success", timer: 1500, showConfirmButton: false });
@@ -115,6 +178,7 @@ export default function HomeAbsensi() {
     }
   };
 
+  // Bagian UI tetap sama seperti kode kamu sebelumnya
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -150,7 +214,6 @@ export default function HomeAbsensi() {
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[30px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
         <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "user" }} className="w-full h-full object-cover grayscale-[0.2]" />
         
-        {/* FRAME SCANNER */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
             <div className={`relative w-72 h-72 transition-all duration-500 ${jarakWajah === 'pas' ? 'scale-105' : 'scale-100'}`}>
                 <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-red-600 rounded-tl-xl"></div>
@@ -161,7 +224,6 @@ export default function HomeAbsensi() {
             </div>
         </div>
 
-        {/* OVERLAY KOORDINAT & INSTRUKSI */}
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-between py-10 pointer-events-none">
           <div className="bg-white/90 backdrop-blur-md border border-amber-200 px-6 py-3 rounded-2xl shadow-xl">
             <p className="text-red-600 font-black text-sm tracking-widest uppercase">
@@ -173,7 +235,6 @@ export default function HomeAbsensi() {
           </div>
 
           <div className="w-full px-6 space-y-3">
-            {/* BOX KOORDINAT */}
             <div className="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-center">
                <div className="flex justify-around items-center">
                   <div className="text-left">
