@@ -50,6 +50,7 @@ export default function HomeAbsensi() {
                   img.onerror = reject;
                 });
 
+                // Gunakan Tiny untuk ekstraksi referensi agar konsisten
                 const detection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
                   .withFaceLandmarks()
                   .withFaceDescriptor();
@@ -64,8 +65,8 @@ export default function HomeAbsensi() {
           
           const validDescriptors = labeledDescriptors.filter((d): d is faceapi.LabeledFaceDescriptors => d !== null);
           if (validDescriptors.length > 0) {
-            // Threshold diturunkan ke 0.5 agar lebih cepat mengenali (toleran)
-            setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.5));
+            // Threshold diturunkan ke 0.4 agar jauh lebih cepat dan toleran
+            setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.4));
           }
         }
         setModelsLoaded(true);
@@ -77,7 +78,7 @@ export default function HomeAbsensi() {
     loadEverything();
   }, []);
 
-  // 2. LOGIKA DETEKSI WAJAH (OPTIMIZED SPEED)
+  // 2. LOGIKA DETEKSI WAJAH (SANGAT CEPAT)
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
@@ -85,61 +86,62 @@ export default function HomeAbsensi() {
         if (webcamRef.current && webcamRef.current.video?.readyState === 4) {
           const video = webcamRef.current.video;
           
-          // Deteksi awal (Ringan)
-          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
+          // Optimasi inputSize ke 160 (sangat cepat untuk HP/Laptop standar)
+          const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 160 });
+          const detection = await faceapi.detectSingleFace(video, detectorOptions);
 
           if (!detection) {
             setJarakWajah("none");
             setPesan("Mencari Wajah...");
           } else {
             const { width } = detection.box;
-            if (width < 120) {
+            if (width < 110) {
               setJarakWajah("jauh");
               setPesan("Dekatkan Wajah");
-            } else if (width > 280) {
+            } else if (width > 290) {
               setJarakWajah("dekat");
               setPesan("Terlalu Dekat");
             } else {
               setJarakWajah("pas");
-              setPesan("Wajah Terdeteksi, Mencocokkan...");
+              setPesan("Mencocokkan...");
 
-              // Jalankan Recognition hanya jika jarak sudah PAS
+              // Ekstrak Descriptor hanya jika jarak sudah PAS
               if (coords && faceMatcher && !isProcessing) {
-                const fullDetection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+                const fullDetection = await faceapi.detectSingleFace(video, detectorOptions)
                   .withFaceLandmarks()
                   .withFaceDescriptor();
 
                 if (fullDetection) {
                   const match = faceMatcher.findBestMatch(fullDetection.descriptor);
+                  
                   if (match.label !== "unknown") {
-                    setPesan("WAJAH DIKENALI! MENGIRIM...");
-                    setIsProcessing(true); // Kunci proses agar tidak double hit
+                    setPesan("WAJAH COCOK! MENGIRIM...");
+                    setIsProcessing(true); 
                     clearInterval(interval);
                     handleAutoCapture(match.label);
                   } else {
-                    setPesan("Wajah Tidak Terdaftar");
+                    setPesan("Wajah Tidak Dikenali");
                   }
                 }
               }
             }
           }
         }
-      }, 250); // Frame rate lebih cepat (250ms)
+      }, 200); // Frame rate ditingkatkan (200ms)
     }
     return () => clearInterval(interval);
   }, [view, modelsLoaded, coords, isProcessing, faceMatcher]);
 
   const handleAutoCapture = (guruId: string) => {
-    // Delay sedikit untuk memberi waktu user melihat pesan "WAJAH DIKENALI"
     setTimeout(() => {
       if (webcamRef.current) {
         const image = webcamRef.current.getScreenshot();
         if (image && coords) ambilFotoOtomatis(image, coords.lat, coords.lng, guruId);
       }
-    }, 500);
+    }, 400);
   };
 
-  // 3. GEOLOCATION & HAIVERSINE
+  // 3. GEOLOCATION
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3;
     const φ1 = (lat1 * Math.PI) / 180;
@@ -163,7 +165,7 @@ export default function HomeAbsensi() {
       },
       () => {
           setPesan("GPS Error");
-          Swal.fire("GPS Error", "Aktifkan lokasi di browser/HP Anda!", "error");
+          Swal.fire("GPS Error", "Aktifkan lokasi!", "error");
       },
       { enableHighAccuracy: true }
     );
@@ -182,20 +184,20 @@ export default function HomeAbsensi() {
       if (res.ok) {
         await Swal.fire({ 
           title: "Berhasil!", 
-          text: `Absensi ${resData.data.status} tercatat atas nama ${resData.data.nama_lengkap}`, 
+          text: `Absensi ${resData.data.status} tercatat.`, 
           icon: "success", 
-          timer: 3000, 
+          timer: 2000, 
           showConfirmButton: true 
         });
         router.push("/admin/dashboard");
       } else {
-          throw new Error(resData.message || "Gagal kirim");
+          throw new Error(resData.message || "Gagal simpan");
       }
-    } catch (error) {
+    } catch (error: any) {
       setIsProcessing(false);
       setJarakWajah("none");
       setPesan("Gagal Simpan");
-      Swal.fire("Error", "Gagal mengirim data ke server.", "error");
+      Swal.fire("Error", error.message || "Gagal mengirim data.", "error");
     }
   };
 
