@@ -24,7 +24,7 @@ export default function HomeAbsensi() {
   const schoolCoords = { lat: -6.2000, lng: 106.8000 };
   const maxRadius = 50;
 
-  // 1. LOAD MODELS & REFERENSI GURU (Optimized & CORS Fixed)
+  // 1. LOAD MODELS & REFERENSI GURU
   useEffect(() => {
     const loadEverything = async () => {
       try {
@@ -41,14 +41,13 @@ export default function HomeAbsensi() {
           const labeledDescriptors = await Promise.all(
             gurus.map(async (g) => {
               try {
-                // Perbaikan CORS: Menggunakan Image object dengan crossOrigin
                 const img = new Image();
                 img.crossOrigin = "anonymous";
                 img.src = `https://backendabsen.mejatika.com/storage/${g.foto_referensi}`;
                 
                 await new Promise((resolve, reject) => {
                   img.onload = resolve;
-                  img.onerror = reject; // Tangani jika 404
+                  img.onerror = reject;
                 });
 
                 const detection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
@@ -65,7 +64,8 @@ export default function HomeAbsensi() {
           
           const validDescriptors = labeledDescriptors.filter((d): d is faceapi.LabeledFaceDescriptors => d !== null);
           if (validDescriptors.length > 0) {
-            setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
+            // Threshold diturunkan ke 0.5 agar lebih cepat mengenali (toleran)
+            setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.5));
           }
         }
         setModelsLoaded(true);
@@ -77,23 +77,33 @@ export default function HomeAbsensi() {
     loadEverything();
   }, []);
 
-  // 2. LOGIKA DETEKSI WAJAH
+  // 2. LOGIKA DETEKSI WAJAH (OPTIMIZED SPEED)
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
       interval = setInterval(async () => {
         if (webcamRef.current && webcamRef.current.video?.readyState === 4) {
           const video = webcamRef.current.video;
+          
+          // Deteksi awal (Ringan)
           const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
 
           if (!detection) {
             setJarakWajah("none");
+            setPesan("Mencari Wajah...");
           } else {
             const { width } = detection.box;
-            if (width < 130) setJarakWajah("jauh");
-            else if (width > 260) setJarakWajah("dekat");
-            else {
+            if (width < 120) {
+              setJarakWajah("jauh");
+              setPesan("Dekatkan Wajah");
+            } else if (width > 280) {
+              setJarakWajah("dekat");
+              setPesan("Terlalu Dekat");
+            } else {
               setJarakWajah("pas");
+              setPesan("Wajah Terdeteksi, Mencocokkan...");
+
+              // Jalankan Recognition hanya jika jarak sudah PAS
               if (coords && faceMatcher && !isProcessing) {
                 const fullDetection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
                   .withFaceLandmarks()
@@ -102,31 +112,34 @@ export default function HomeAbsensi() {
                 if (fullDetection) {
                   const match = faceMatcher.findBestMatch(fullDetection.descriptor);
                   if (match.label !== "unknown") {
+                    setPesan("WAJAH DIKENALI! MENGIRIM...");
+                    setIsProcessing(true); // Kunci proses agar tidak double hit
                     clearInterval(interval);
                     handleAutoCapture(match.label);
                   } else {
-                    setPesan("Wajah Tidak Dikenali");
+                    setPesan("Wajah Tidak Terdaftar");
                   }
                 }
               }
             }
           }
         }
-      }, 400);
+      }, 250); // Frame rate lebih cepat (250ms)
     }
     return () => clearInterval(interval);
   }, [view, modelsLoaded, coords, isProcessing, faceMatcher]);
 
   const handleAutoCapture = (guruId: string) => {
+    // Delay sedikit untuk memberi waktu user melihat pesan "WAJAH DIKENALI"
     setTimeout(() => {
       if (webcamRef.current) {
         const image = webcamRef.current.getScreenshot();
         if (image && coords) ambilFotoOtomatis(image, coords.lat, coords.lng, guruId);
       }
-    }, 800);
+    }, 500);
   };
 
-  // 3. GEOLOCATION
+  // 3. GEOLOCATION & HAIVERSINE
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3;
     const φ1 = (lat1 * Math.PI) / 180;
@@ -148,28 +161,40 @@ export default function HomeAbsensi() {
           Swal.fire("Akses Ditolak", `Jarak Anda ${Math.round(distance)}m dari sekolah.`, "error");
         }
       },
-      () => Swal.fire("GPS Error", "Aktifkan GPS Anda!", "error"),
+      () => {
+          setPesan("GPS Error");
+          Swal.fire("GPS Error", "Aktifkan lokasi di browser/HP Anda!", "error");
+      },
       { enableHighAccuracy: true }
     );
   };
 
   const ambilFotoOtomatis = async (image: string, lat: number, lng: number, guruId: string) => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    setPesan("Memproses Absensi...");
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image, lat, lng, guru_id: guruId }),
       });
+      
+      const resData = await res.json();
+
       if (res.ok) {
-        Swal.fire({ title: "Berhasil!", text: "Absensi Terekam", icon: "success", timer: 1500, showConfirmButton: false });
+        await Swal.fire({ 
+          title: "Berhasil!", 
+          text: `Absensi ${resData.data.status} tercatat atas nama ${resData.data.nama_lengkap}`, 
+          icon: "success", 
+          timer: 3000, 
+          showConfirmButton: true 
+        });
         router.push("/admin/dashboard");
-      } else throw new Error("Gagal kirim");
+      } else {
+          throw new Error(resData.message || "Gagal kirim");
+      }
     } catch (error) {
       setIsProcessing(false);
       setJarakWajah("none");
+      setPesan("Gagal Simpan");
       Swal.fire("Error", "Gagal mengirim data ke server.", "error");
     }
   };
@@ -211,11 +236,11 @@ export default function HomeAbsensi() {
         
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
             <div className={`relative w-72 h-72 transition-all duration-500 ${jarakWajah === 'pas' ? 'scale-105' : 'scale-100'}`}>
-                <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-red-600 rounded-tl-xl"></div>
-                <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-red-600 rounded-tr-xl"></div>
-                <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-red-600 rounded-bl-xl"></div>
-                <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-red-600 rounded-br-xl"></div>
-                <div className="absolute w-full h-[2px] bg-red-500 shadow-[0_0_20px_rgba(220,38,38,0.9)] animate-scan-red"></div>
+                <div className={`absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 rounded-tl-xl ${jarakWajah === 'pas' ? 'border-green-500' : 'border-red-600'}`}></div>
+                <div className={`absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 rounded-tr-xl ${jarakWajah === 'pas' ? 'border-green-500' : 'border-red-600'}`}></div>
+                <div className={`absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 rounded-bl-xl ${jarakWajah === 'pas' ? 'border-green-500' : 'border-red-600'}`}></div>
+                <div className={`absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 rounded-br-xl ${jarakWajah === 'pas' ? 'border-green-500' : 'border-red-600'}`}></div>
+                <div className={`absolute w-full h-[2px] shadow-[0_0_20px_rgba(220,38,38,0.9)] animate-scan-red ${jarakWajah === 'pas' ? 'bg-green-400' : 'bg-red-500'}`}></div>
             </div>
         </div>
 
