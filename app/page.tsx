@@ -17,18 +17,16 @@ export default function HomeAbsensi() {
 
   // Konfigurasi Video Super Ringan
   const videoConstraints = {
-    width: 320, // Resolusi rendah = AI deteksi jauh lebih cepat
+    width: 320,
     height: 480,
-    facingMode: "user",
-    frameRate: 30
+    facingMode: "user" as const, // Fixed type
   };
 
-  // 1. LOAD MODEL (Hanya detector paling dasar)
+  // 1. LOAD MODEL
   useEffect(() => {
     const loadModels = async () => {
       try {
         const MODEL_URL = "/models";
-        // Hanya satu model agar tidak berat di memori
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
         setModelsLoaded(true);
       } catch (err) {
@@ -42,7 +40,6 @@ export default function HomeAbsensi() {
   useEffect(() => {
     let interval: any;
     if (view === "absen" && modelsLoaded && !isProcessing) {
-      // Input size diperkecil ke 128 untuk performa maksimal (trade-off akurasi sedikit)
       const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.5 });
 
       interval = setInterval(async () => {
@@ -55,7 +52,6 @@ export default function HomeAbsensi() {
             setPesan("Mencari Wajah...");
           } else {
             const { width } = detection.box;
-            // Toleransi jarak diperlebar agar cepat "PAS"
             if (width < 80) { 
               setJarakWajah("jauh"); 
               setPesan("Dekatkan");
@@ -67,22 +63,19 @@ export default function HomeAbsensi() {
               setPesan("⚡ CAPTURE!");
               setIsProcessing(true);
               clearInterval(interval);
-              handleInstantCapture();
+              
+              // Fungsi capture dipanggil tanpa parameter untuk menghindari error TS
+              const image = webcamRef.current?.getScreenshot();
+              if (image && coords) {
+                sendToServer(image, coords.lat, coords.lng);
+              }
             }
           }
         }
-      }, 80); // Cek setiap 80ms (sangat responsif)
+      }, 80);
     }
     return () => clearInterval(interval);
-  }, [view, modelsLoaded, isProcessing]);
-
-  const handleInstantCapture = () => {
-    // Kualitas dikurangi ke 0.3 agar file Base64 sangat kecil
-    const image = webcamRef.current?.getScreenshot({ quality: 0.3 });
-    if (image && coords) {
-      sendToServer(image, coords.lat, coords.lng);
-    }
-  };
+  }, [view, modelsLoaded, isProcessing, coords]);
 
   // 3. KIRIM DATA KILAT
   const sendToServer = async (image: string, lat: number, lng: number) => {
@@ -95,7 +88,6 @@ export default function HomeAbsensi() {
       });
       
       if (res.ok) {
-        // Langsung pindah halaman tanpa menunggu popup ditutup
         router.push("/dashboard-absensi");
         Swal.fire({ title: "Berhasil!", icon: "success", timer: 1000, showConfirmButton: false });
       } else {
@@ -115,7 +107,7 @@ export default function HomeAbsensi() {
         setView("absen");
       },
       () => Swal.fire("GPS Mati", "Aktifkan lokasi!", "error"),
-      { enableHighAccuracy: false } // False agar GPS mengunci lebih cepat
+      { enableHighAccuracy: false }
     );
   };
 
@@ -147,18 +139,17 @@ export default function HomeAbsensi() {
           ref={webcamRef} 
           audio={false} 
           screenshotFormat="image/jpeg" 
+          screenshotQuality={0.3} // KUALITAS DIATUR DI SINI AGAR TIDAK ERROR
           videoConstraints={videoConstraints} 
           className="w-full h-full object-cover" 
         />
         
-        {/* Frame UI */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
             <div className={`relative w-72 h-72 border-2 rounded-full transition-all duration-300 ${jarakWajah === 'pas' ? 'border-green-400 scale-110' : 'border-white/30'}`}>
                 <div className={`absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin-slow ${jarakWajah === 'pas' ? 'opacity-0' : 'opacity-100'}`}></div>
             </div>
         </div>
 
-        {/* GPS Info & Status */}
         <div className="absolute bottom-0 w-full z-30 bg-black/80 backdrop-blur-md p-6 border-t border-white/10">
             <div className="flex justify-between items-center text-white/50 text-[8px] font-mono mb-4 tracking-widest uppercase">
                 <span>Lat: {coords?.lat.toFixed(5)}</span>
