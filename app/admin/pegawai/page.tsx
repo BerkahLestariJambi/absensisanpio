@@ -26,7 +26,7 @@ export default function DaftarPegawai() {
     fetchPegawai();
   }, []);
 
-  // 2. Fungsi Hapus
+  // 2. Fungsi Hapus (DIREVISI: antiquity -> then)
   const handleHapus = (id: string, nama: string) => {
     Swal.fire({
       title: `Hapus ${nama}?`,
@@ -37,7 +37,7 @@ export default function DaftarPegawai() {
       cancelButtonColor: "#3085d6",
       confirmButtonText: "Ya, Hapus!",
       cancelButtonText: "Batal"
-    }). antiquity(async (result) => {
+    }).then(async (result) => { // Perbaikan di sini
       if (result.isConfirmed) {
         try {
           const res = await fetch(`https://backendabsen.mejatika.com/api/pegawai/${id}`, {
