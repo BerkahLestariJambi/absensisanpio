@@ -15,14 +15,13 @@ export default function HomeAbsensi() {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const router = useRouter();
 
-  // Konfigurasi Video & Capture Ringan
   const videoConstraints = {
     width: 320,
     height: 480,
     facingMode: "user" as const,
   };
 
-  // 1. LOAD MODEL (Hanya detector dasar untuk kecepatan)
+  // 1. LOAD MODEL
   useEffect(() => {
     const loadModels = async () => {
       try {
@@ -65,11 +64,14 @@ export default function HomeAbsensi() {
               clearInterval(interval);
               
               const image = webcamRef.current?.getScreenshot();
-              if (image && coords) {
+              // Pastikan coords tidak null sebelum kirim
+              if (image && coords && coords.lat !== 0) {
                 sendToServer(image, coords.lat, coords.lng);
               } else {
                 setIsProcessing(false);
-                setPesan("Gagal Capture");
+                setPesan("GPS Belum Siap");
+                // Coba refresh koordinat jika gagal
+                startAbsenFlow();
               }
             }
           }
@@ -79,7 +81,7 @@ export default function HomeAbsensi() {
     return () => clearInterval(interval);
   }, [view, modelsLoaded, isProcessing, coords]);
 
-  // 3. KIRIM DATA KE API (Dengan Debugging "Failed to Fetch")
+  // 3. KIRIM DATA KE API
   const sendToServer = async (image: string, lat: number, lng: number) => {
     setPesan("🚀 Mengirim...");
     try {
@@ -98,28 +100,30 @@ export default function HomeAbsensi() {
         Swal.fire({ title: "Berhasil!", icon: "success", timer: 1000, showConfirmButton: false });
         router.push("/dashboard-absensi");
       } else {
+        // Tampilkan pesan error dari backend (termasuk masalah jarak)
         throw new Error(responseData.message || "Ditolak Server");
       }
     } catch (e: any) {
       setIsProcessing(false);
       setJarakWajah("none");
-      // Menampilkan error detail untuk melacak masalah "Failed to Fetch"
-      Swal.fire("Gagal Kirim", "Masalah: " + e.message + ". Cek koneksi atau izin CORS di server.", "error");
+      Swal.fire("Gagal Absen", e.message, "error");
     }
   };
 
   const startAbsenFlow = () => {
+    setPesan("🛰️ Mencari Satelit...");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setView("absen");
       },
-      () => Swal.fire("GPS Mati", "Aktifkan lokasi!", "error"),
-      { enableHighAccuracy: true }
+      (err) => {
+        Swal.fire("GPS Error", "Pastikan GPS aktif & Izin lokasi diberikan", "error");
+      },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
     );
   };
 
-  // --- TAMPILAN DASHBOARD AWAL ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -134,12 +138,11 @@ export default function HomeAbsensi() {
             <button 
               disabled={!modelsLoaded}
               onClick={startAbsenFlow} 
-              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700 active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
+              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700 active:scale-95 shadow-red-200' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
             >
               {modelsLoaded ? "🚀 MULAI ABSEN" : "MEMUAT AI..."}
             </button>
 
-            {/* FITUR LOGIN ADMIN YANG SEBELUMNYA HILANG */}
             <button 
               onClick={() => router.push("/admin/login")} 
               className="w-full py-4 bg-white text-slate-700 border-2 border-amber-100 rounded-2xl font-bold hover:bg-amber-50 transition-all active:scale-95"
@@ -152,13 +155,11 @@ export default function HomeAbsensi() {
     );
   }
 
-  // --- TAMPILAN KAMERA ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative bg-batik overflow-hidden">
-      {/* FITUR TOMBOL BATAL */}
       <button 
         onClick={() => { setView("menu"); setIsProcessing(false); }} 
-        className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg active:scale-90"
+        className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg"
       >
         ← BATAL
       </button>
@@ -173,14 +174,12 @@ export default function HomeAbsensi() {
           className="w-full h-full object-cover shadow-inner" 
         />
         
-        {/* Frame Scanner Visual */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
             <div className={`relative w-64 h-64 border-2 rounded-full transition-all duration-300 ${jarakWajah === 'pas' ? 'border-green-400 scale-110' : 'border-white/20'}`}>
                 <div className={`absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin-slow ${jarakWajah === 'pas' ? 'opacity-0' : 'opacity-100'}`}></div>
             </div>
         </div>
 
-        {/* INFO KOORDINAT GPS (Paling Lengkap) */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
             <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
                 <div className="flex justify-between items-center mb-3">
