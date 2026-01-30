@@ -17,6 +17,7 @@ export default function HomeAbsensi() {
 
   const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
 
+  // --- 1. LOAD AI & DATABASE ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
@@ -58,6 +59,7 @@ export default function HomeAbsensi() {
     }
   }, []);
 
+  // --- 2. SCANNER ENGINE ---
   useEffect(() => {
     let interval: any;
     if (view === "absen" && !isProcessing) {
@@ -103,7 +105,7 @@ export default function HomeAbsensi() {
     return () => clearInterval(interval);
   }, [view, faceMatcher, isProcessing, coords]);
 
-  // Logika Tambahan untuk Pilihan Status Izin/Sakit
+  // --- 3. LOGIKA PULANG CEPAT ---
   const handleRecognitionSuccess = async (guruId: string) => {
     const sekarang = new Date();
     const jam = sekarang.getHours();
@@ -113,34 +115,32 @@ export default function HomeAbsensi() {
     // Range Pulang Cepat: 07:15 (435m) sampai 12:44 (764m)
     if (totalMenit >= 435 && totalMenit <= 764) {
       const { value: status } = await Swal.fire({
-        title: "Pulang Cepat Terdeteksi",
-        text: "Pilih alasan Anda pulang sebelum waktunya:",
+        title: "Pulang Cepat",
+        text: "Pilih alasan Anda:",
         icon: "warning",
         input: "select",
         inputOptions: {
           "Izin Pulang Cepat": "Izin",
           "Sakit": "Sakit",
         },
-        inputPlaceholder: "Pilih alasan",
+        inputPlaceholder: "-- Pilih Alasan --",
         showCancelButton: true,
         confirmButtonColor: "#d33",
-        cancelButtonText: "Batal",
         allowOutsideClick: false
       });
 
       if (status) {
         sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, status);
       } else {
-        // Jika batal, izinkan scan ulang
         setIsProcessing(false);
-        setPesan("Silakan Scan Ulang");
+        setPesan("Scan Ulang...");
       }
     } else {
-      // Jika masuk atau pulang tepat waktu, langsung kirim
       sendToServer(guruId, coords?.lat || 0, coords?.lng || 0);
     }
   };
 
+  // --- 4. KIRIM DATA KE API ---
   const sendToServer = async (guruId: string, lat: number, lng: number, statusTambahan?: string) => {
     setPesan("Mengirim Data...");
     try {
@@ -151,7 +151,7 @@ export default function HomeAbsensi() {
           guru_id: guruId, 
           lat, 
           lng,
-          status_tambahan: statusTambahan // Dikirim ke Backend
+          status_tambahan: statusTambahan 
         }),
       });
 
@@ -167,20 +167,40 @@ export default function HomeAbsensi() {
         });
         setTimeout(() => router.push("/dashboard-absensi"), 2000);
       } else {
-        throw new Error(data.message || "Gagal menyimpan");
+        // JIKA GAGAL (Termasuk: Batas Waktu 14.00 Telah Lewat)
+        Swal.fire({
+          title: "Peringatan",
+          text: data.message || "Gagal menyimpan",
+          icon: "warning",
+          timer: 2000, 
+          showConfirmButton: false
+        });
+
+        // AUTO CLOSE & KEMBALI KE MENU UTAMA
+        setTimeout(() => {
+          setIsProcessing(false);
+          setView("menu");
+          setPesan("⚡ Scanner Siap");
+        }, 2000);
       }
     } catch (e: any) {
       setIsProcessing(false);
-      setPesan("Gagal, Mencoba lagi...");
-      Swal.fire("Gagal", e.message || "Koneksi terputus", "error");
+      setPesan("Koneksi Error...");
+      Swal.fire({
+        title: "Gagal",
+        text: "Koneksi terputus",
+        icon: "error",
+        timer: 2000,
+        showConfirmButton: false
+      });
+      setTimeout(() => setView("menu"), 2000);
     }
   };
 
-  // --- UI TETAP SAMA SEPERTI SEBELUMNYA ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
-        <div className="w-full max-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
+        <div className="w-full max-w-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
           <div className="w-16 h-16 bg-red-600 rounded-2xl mx-auto flex items-center justify-center shadow-xl mb-4 text-white text-3xl font-black italic">⚡</div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase mb-8">Turbo Recognition</h1>
           <button onClick={() => setView("absen")} className="w-full py-5 bg-red-600 hover:scale-105 active:scale-95 text-white rounded-2xl font-black shadow-lg transition-all text-lg">🚀 ABSEN SEKARANG</button>
@@ -220,6 +240,9 @@ export default function HomeAbsensi() {
                 </div>
             </div>
         </div>
+      </div>
+      <div className="w-full max-w-md px-6 text-center opacity-30">
+        <p className="text-slate-800 font-black text-[9px] tracking-[0.4em] uppercase italic">Sanpio Turbo-Sync Engine</p>
       </div>
       <style jsx global>{`
         .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
