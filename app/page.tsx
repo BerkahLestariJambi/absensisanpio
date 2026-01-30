@@ -118,7 +118,7 @@ export default function HomeAbsensi() {
           </div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none">Turbo Absen</h1>
           
-          <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-100">
+          <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-100 text-center">
             <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest">Status Koordinat:</p>
             <p className={`text-[12px] font-mono font-bold ${coords ? "text-green-600" : "text-red-500 animate-pulse"}`}>
               {coords ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` : "🛰️ MENCARI SATELIT..."}
@@ -133,6 +133,7 @@ export default function HomeAbsensi() {
             >
               {modelsLoaded && coords ? "🚀 MULAI ABSEN" : "MENGUNCI SISTEM..."}
             </button>
+            <button onClick={() => router.push("/admin/login")} className="w-full py-4 bg-white text-slate-700 border-2 border-amber-100 rounded-2xl font-bold">🔐 LOGIN ADMIN</button>
           </div>
         </div>
       </div>
@@ -141,34 +142,58 @@ export default function HomeAbsensi() {
 
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden">
-      {/* Tombol Batal Tetap di Atas */}
-      <div className="w-full max-w-md flex justify-start mt-4 mb-4">
-        <button onClick={() => { setView("menu"); setIsProcessing(false); }} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg z-50">
+      {/* HEADER: Tombol Batal */}
+      <div className="w-full max-w-md flex justify-start mt-2 mb-2">
+        <button onClick={() => { setView("menu"); setIsProcessing(false); }} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg">
           ← BATAL
         </button>
       </div>
 
-      {/* Frame Kamera Lebih ke Atas */}
-      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl mb-20">
+      {/* FRAME KAMERA (Agak Naik ke Atas) */}
+      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl mb-6">
         <Webcam ref={webcamRef} audio={false} videoConstraints={videoConstraints} className="w-full h-full object-cover" />
         
-        {/* Indikator Status (Tanpa Bulatan Tengah) */}
-        <div className="absolute top-0 w-full p-4 z-30">
-          <div className={`text-center py-2 rounded-2xl backdrop-blur-md border ${jarakWajah === 'pas' ? 'bg-green-500/20 border-green-400' : 'bg-black/20 border-white/20'}`}>
-            <span className="text-[11px] text-white font-black uppercase italic tracking-widest">{pesan}</span>
-          </div>
+        {/* Overlay Scanner Line (Garis Laser Bergerak) */}
+        <div className={`absolute left-0 w-full h-[2px] bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] z-20 animate-scan ${jarakWajah === 'pas' ? 'hidden' : ''}`}></div>
+
+        {/* INFO OVERLAY (Latitude, Longitude, & Progress Bar) */}
+        <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
+                <div className="flex justify-between items-center mb-3">
+                    <div className="space-y-1">
+                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
+                        <p className="text-[12px] font-mono text-white font-bold leading-none">{coords ? coords.lat.toFixed(7) : "Searching..."}</p>
+                    </div>
+                    <div className="w-[1px] h-6 bg-white/20"></div>
+                    <div className="space-y-1 text-right">
+                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
+                        <p className="text-[12px] font-mono text-white font-bold leading-none">{coords ? coords.lng.toFixed(7) : "Searching..."}</p>
+                    </div>
+                </div>
+                
+                <div className="flex items-center gap-3 border-t border-white/10 pt-3">
+                    <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div className={`h-full bg-red-600 transition-all duration-700 ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}></div>
+                    </div>
+                    <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest">{pesan}</span>
+                </div>
+            </div>
         </div>
       </div>
 
-      {/* Watermark/Info di Bawah Kamera */}
-      <div className="w-full max-w-md px-6 text-center opacity-30">
-        <p className="text-slate-800 font-black text-[10px] tracking-[0.3em] uppercase italic">Sanpio High-Speed System</p>
+      {/* FOOTER: Watermark */}
+      <div className="w-full max-w-md px-6 text-center opacity-40 mt-2">
+        <p className="text-slate-800 font-black text-[10px] tracking-[0.3em] uppercase italic leading-none">Sanpio Turbo Absen</p>
+        <p className="text-slate-600 font-bold text-[8px] mt-1">Sistem Keamanan Berbasis Geospasial</p>
       </div>
 
       <style jsx global>{`
         .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
-        .animate-spin-slow { animation: spin 3s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .animate-scan { animation: scan 2s linear infinite; }
+        @keyframes scan {
+          0% { top: 0%; }
+          100% { top: 100%; }
+        }
       `}</style>
     </div>
   );
