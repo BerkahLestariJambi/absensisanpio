@@ -5,159 +5,68 @@ import * as faceapi from "face-api.js";
 import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
 
-interface Guru {
-  id: number;
-  foto_referensi: string;
-}
-
 export default function HomeAbsensi() {
   const [view, setView] = useState<"menu" | "absen">("menu");
   const webcamRef = useRef<Webcam>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [pesan, setPesan] = useState("Menyiapkan Sistem...");
+  const [pesan, setPesan] = useState("Mencari Sinyal GPS...");
   const [jarakWajah, setJarakWajah] = useState<"pas" | "jauh" | "dekat" | "none">("none");
   const [isProcessing, setIsProcessing] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const router = useRouter();
 
   const schoolCoords = { lat: -6.2000, lng: 106.8000 };
   const maxRadius = 50;
 
   useEffect(() => {
-    const initAI = async () => {
+    const loadModels = async () => {
       try {
-        setPesan("Memuat Model AI...");
         const MODEL_URL = "/models";
-        
-        // Memuat model satu per satu agar lebih stabil
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-
-        setPesan("Mengambil Data Guru...");
-        const res = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
-        if (!res.ok) throw new Error("Gagal terhubung ke API Server");
-        
-        const gurus: Guru[] = await res.json();
-
-        if (gurus.length === 0) {
-          setPesan("Data referensi kosong");
-          setModelsLoaded(true);
-          return;
-        }
-
-        setPesan(`Memproses ${gurus.length} Wajah...`);
-        const labeledDescriptors = await Promise.all(
-          gurus.map(async (g) => {
-            try {
-              // Menambahkan proxy atau cache bypass jika diperlukan
-              const imgUrl = `https://backendabsen.mejatika.com/storage/${g.foto_referensi}`;
-              const img = await faceapi.fetchImage(imgUrl);
-              
-              const fullFaceDescription = await faceapi.detectSingleFace(
-                img, 
-                new faceapi.TinyFaceDetectorOptions()
-              ).withFaceLandmarks().withFaceDescriptor();
-              
-              if (!fullFaceDescription) {
-                console.warn(`Wajah tidak terdeteksi pada foto guru ID: ${g.id}`);
-                return null;
-              }
-              return new faceapi.LabeledFaceDescriptors(g.id.toString(), [fullFaceDescription.descriptor]);
-            } catch (e) { 
-              console.error(`Gagal memproses gambar guru ID: ${g.id}`, e);
-              return null; 
-            }
-          })
-        );
-
-        const validDescriptors = labeledDescriptors.filter((d): d is faceapi.LabeledFaceDescriptors => d !== null);
-        
-        if (validDescriptors.length > 0) {
-          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
-          setModelsLoaded(true);
-          setPesan("Sistem Siap");
-        } else {
-          setPesan("Tidak ada wajah referensi valid");
-          // Tetap set true agar tombol tidak stuck, tapi nanti tampilkan error saat absen
-          setModelsLoaded(true); 
-        }
-      } catch (err: any) {
-        console.error("Kritikal Error AI:", err);
-        setPesan(`Error: ${err.message || "Gagal memuat sistem"}`);
-        // Jika error karena model 404
-        if (err.message.includes("404")) {
-           setPesan("File Model AI tidak ditemukan di folder /public/models");
-        }
+        setModelsLoaded(true);
+      } catch (err) {
+        console.error("Gagal load model AI:", err);
+        setPesan("Gagal memuat sistem AI");
       }
     };
-    initAI();
+    loadModels();
   }, []);
 
-  // ... (Sisa kode useEffect deteksi wajah dan handleAbsen tetap sama dengan sebelumnya)
-  
-  // NOTE: Pastikan bagian penutup useEffect deteksi tetap menggunakan (detection as any).detection.box 
-  // Agar build tidak gagal seperti sebelumnya.
-
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    const runDetection = async () => {
-      if (view === "absen" && modelsLoaded && !isProcessing && webcamRef.current) {
-        const video = webcamRef.current.video;
-        if (video && video.readyState === 4) {
-          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
-            .withFaceLandmarks()
-            .withFaceDescriptor();
+    let interval: any;
+    if (view === "absen" && modelsLoaded && !isProcessing) {
+      interval = setInterval(async () => {
+        if (webcamRef.current && webcamRef.current.video?.readyState === 4) {
+          const video = webcamRef.current.video;
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
 
           if (!detection) {
             setJarakWajah("none");
           } else {
-            const { width } = (detection as any).detection.box;
+            const { width } = detection.box;
             if (width < 130) setJarakWajah("jauh");
             else if (width > 260) setJarakWajah("dekat");
             else {
               setJarakWajah("pas");
-              if (coords && faceMatcher && !isProcessing) {
-                const match = faceMatcher.findBestMatch(detection.descriptor);
-                if (match.label !== "unknown") {
-                  setIsProcessing(true); 
-                  handleAbsen(match.label, webcamRef.current.getScreenshot()!);
-                } else {
-                  setPesan("Wajah Tidak Dikenali");
-                }
+              if (coords && !isProcessing) {
+                clearInterval(interval);
+                handleAutoCapture();
               }
             }
           }
         }
-      }
-    };
-    if (view === "absen") interval = setInterval(runDetection, 700);
-    return () => { if (interval) clearInterval(interval); };
-  }, [view, modelsLoaded, coords, isProcessing, faceMatcher]);
-
-  const handleAbsen = async (guruId: string, image: string) => {
-    setPesan("Memverifikasi...");
-    try {
-      const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          guru_id: guruId,
-          image: image,
-          lat: coords?.lat,
-          lng: coords?.lng
-        }),
-      });
-      if (res.ok) {
-        Swal.fire({ title: "Berhasil!", icon: "success", timer: 1500, showConfirmButton: false });
-        router.push("/admin/rekap-absensi");
-      } else { throw new Error("Gagal absen"); }
-    } catch (error) {
-      Swal.fire("Gagal", "Terjadi kesalahan server", "error");
-      setIsProcessing(false);
-      setJarakWajah("none");
+      }, 600);
     }
+    return () => clearInterval(interval);
+  }, [view, modelsLoaded, coords, isProcessing]);
+
+  const handleAutoCapture = () => {
+    setTimeout(() => {
+      if (webcamRef.current) {
+        const image = webcamRef.current.getScreenshot();
+        if (image && coords) ambilFotoOtomatis(image, coords.lat, coords.lng);
+      }
+    }, 1500);
   };
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -179,7 +88,6 @@ export default function HomeAbsensi() {
         else {
           setPesan("Di Luar Area");
           Swal.fire("Akses Ditolak", `Jarak Anda ${Math.round(distance)}m dari sekolah.`, "error");
-          setView("menu");
         }
       },
       () => Swal.fire("GPS Error", "Aktifkan GPS Anda!", "error"),
@@ -187,12 +95,30 @@ export default function HomeAbsensi() {
     );
   };
 
-  // UI rendering (Menu & Absen view)...
-  // (Copy bagian return UI dari kode kamu sebelumnya karena sudah benar secara visual)
+  const ambilFotoOtomatis = async (image: string, lat: number, lng: number) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image, lat, lng }),
+      });
+      if (res.ok) {
+        Swal.fire({ title: "Berhasil!", text: "Absensi Terekam", icon: "success", timer: 1500, showConfirmButton: false });
+        router.push("/admin/dashboard");
+      } else throw new Error("Gagal kirim");
+    } catch (error) {
+      setIsProcessing(false);
+      setJarakWajah("none");
+      Swal.fire("Error", "Gagal mengirim data ke server.", "error");
+    }
+  };
+
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
-        <div className="w-full max-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
+        <div className="w-full max-w-sm bg-white/90 backdrop-blur-sm rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
           <div className="w-20 h-20 bg-red-600 rounded-3xl mx-auto flex items-center justify-center shadow-xl mb-4">
             <span className="text-white text-3xl font-black">S</span>
           </div>
@@ -204,7 +130,7 @@ export default function HomeAbsensi() {
               onClick={() => { setView("absen"); getInitialLocation(); }} 
               className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-300'} text-white rounded-2xl font-bold shadow-lg transition-all active:scale-95`}
             >
-              {modelsLoaded ? "🚀 MULAI ABSENSI" : pesan}
+              {modelsLoaded ? "🚀 MULAI ABSENSI" : "MENYIAPKAN AI..."}
             </button>
             <button onClick={() => router.push("/admin/login")} className="w-full py-4 bg-white text-slate-700 border-2 border-amber-100 rounded-2xl font-bold hover:bg-amber-50 transition-all active:scale-95">
               🔐 LOGIN ADMIN
@@ -224,6 +150,7 @@ export default function HomeAbsensi() {
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[30px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
         <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "user" }} className="w-full h-full object-cover grayscale-[0.2]" />
         
+        {/* FRAME SCANNER */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
             <div className={`relative w-72 h-72 transition-all duration-500 ${jarakWajah === 'pas' ? 'scale-105' : 'scale-100'}`}>
                 <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-red-600 rounded-tl-xl"></div>
@@ -234,23 +161,21 @@ export default function HomeAbsensi() {
             </div>
         </div>
 
+        {/* OVERLAY KOORDINAT & INSTRUKSI */}
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-between py-10 pointer-events-none">
           <div className="bg-white/90 backdrop-blur-md border border-amber-200 px-6 py-3 rounded-2xl shadow-xl">
-            <p className="text-red-600 font-black text-sm tracking-widest uppercase text-center">
-              {isProcessing ? "⏳ Sedang Memproses..." : (
-                <>
-                  {jarakWajah === "pas" && "✅ Posisi Pas! Tahan..."}
-                  {jarakWajah === "jauh" && "❌ Dekatkan Wajah"}
-                  {jarakWajah === "dekat" && "❌ Terlalu Dekat"}
-                  {jarakWajah === "none" && "🔍 Mencari Wajah..."}
-                </>
-              )}
+            <p className="text-red-600 font-black text-sm tracking-widest uppercase">
+              {jarakWajah === "pas" && "✅ Posisi Pas! Tahan..."}
+              {jarakWajah === "jauh" && "❌ Dekatkan Wajah"}
+              {jarakWajah === "dekat" && "❌ Terlalu Dekat"}
+              {jarakWajah === "none" && "🔍 Mencari Wajah..."}
             </p>
           </div>
 
           <div className="w-full px-6 space-y-3">
+            {/* BOX KOORDINAT */}
             <div className="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-center">
-                <div className="flex justify-around items-center">
+               <div className="flex justify-around items-center">
                   <div className="text-left">
                     <p className="text-[9px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
                     <p className="text-xs font-mono text-white font-bold">{coords ? coords.lat.toFixed(6) : "Fetching..."}</p>
@@ -260,8 +185,8 @@ export default function HomeAbsensi() {
                     <p className="text-[9px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
                     <p className="text-xs font-mono text-white font-bold">{coords ? coords.lng.toFixed(6) : "Fetching..."}</p>
                   </div>
-                </div>
-                <p className="text-[10px] text-amber-200 mt-2 font-bold tracking-tighter uppercase italic">{pesan}</p>
+               </div>
+               <p className="text-[10px] text-amber-200 mt-2 font-bold tracking-tighter uppercase italic">{pesan}</p>
             </div>
             
             <div className="h-1.5 bg-white/20 rounded-full overflow-hidden w-full mx-auto">
@@ -270,6 +195,7 @@ export default function HomeAbsensi() {
           </div>
         </div>
       </div>
+
       <style jsx global>{`
         .bg-batik {
           background-color: #fdf5e6;
