@@ -15,20 +15,21 @@ export default function HomeAbsensi() {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const router = useRouter();
 
+  // Koordinat Sekolah
   const schoolCoords = { lat: -6.2000, lng: 106.8000 };
   const maxRadius = 50;
 
-  // 1. LOAD MODELS (Hanya sekali saat aplikasi dibuka)
+  // 1. LOAD MODELS (Pastikan file ada di public/models)
   useEffect(() => {
     const loadModels = async () => {
       try {
         const MODEL_URL = "/models";
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-        ]);
+        // Memastikan face-api hanya berjalan di client side
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
         setModelsLoaded(true);
       } catch (err) {
-        console.error("Gagal load model AI", err);
+        console.error("Gagal load model AI:", err);
+        setPesan("Gagal memuat sistem AI");
       }
     };
     loadModels();
@@ -37,10 +38,12 @@ export default function HomeAbsensi() {
   // 2. DETEKSI BIOMETRIK REAL-TIME
   useEffect(() => {
     let interval: any;
+    
     if (view === "absen" && modelsLoaded && !isProcessing) {
       interval = setInterval(async () => {
         if (webcamRef.current && webcamRef.current.video?.readyState === 4) {
           const video = webcamRef.current.video;
+          
           const detection = await faceapi.detectSingleFace(
             video,
             new faceapi.TinyFaceDetectorOptions()
@@ -50,25 +53,39 @@ export default function HomeAbsensi() {
             setJarakWajah("none");
           } else {
             const { width } = detection.box;
-            // Logika akurasi jarak biometrik (lebar kotak wajah)
-            if (width < 120) {
+            
+            // Logika akurasi jarak biometrik
+            if (width < 130) {
               setJarakWajah("jauh");
-            } else if (width > 240) {
+            } else if (width > 260) {
               setJarakWajah("dekat");
             } else {
               setJarakWajah("pas");
-              // Jika sudah pas dan lokasi sudah ada, tembak API
+              // Auto-capture jika GPS sudah terkunci
               if (coords && !isProcessing) {
-                // Memberi sedikit jeda agar user tahu posisi sudah pas
-                setTimeout(() => ambilFotoOtomatis(coords.lat, coords.lng), 1000);
+                // Hentikan interval segera setelah posisi "pas" ditemukan
+                clearInterval(interval); 
+                handleAutoCapture();
               }
             }
           }
         }
-      }, 500); // Scan setiap 0.5 detik
+      }, 600);
     }
     return () => clearInterval(interval);
   }, [view, modelsLoaded, coords, isProcessing]);
+
+  const handleAutoCapture = () => {
+    // Delay 1.5 detik agar user sempat melihat instruksi "POSISI PAS"
+    setTimeout(() => {
+      if (webcamRef.current) {
+        const image = webcamRef.current.getScreenshot();
+        if (image && coords) {
+          ambilFotoOtomatis(image, coords.lat, coords.lng);
+        }
+      }
+    }, 1500);
+  };
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3;
@@ -85,11 +102,12 @@ export default function HomeAbsensi() {
       (pos) => {
         const distance = calculateDistance(pos.coords.latitude, pos.coords.longitude, schoolCoords.lat, schoolCoords.lng);
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        
         if (distance <= maxRadius) {
           setPesan("Lokasi Sesuai");
         } else {
-          setPesan("Di Luar Area Sekolah");
-          Swal.fire("Akses Ditolak", "Anda berada di luar radius.", "error");
+          setPesan("Di Luar Area");
+          Swal.fire("Akses Ditolak", `Jarak Anda ${Math.round(distance)}m dari sekolah.`, "error");
         }
       },
       () => Swal.fire("GPS Error", "Aktifkan GPS Anda!", "error"),
@@ -97,11 +115,9 @@ export default function HomeAbsensi() {
     );
   };
 
-  const ambilFotoOtomatis = async (lat: number, lng: number) => {
+  const ambilFotoOtomatis = async (image: string, lat: number, lng: number) => {
     if (isProcessing) return;
     setIsProcessing(true);
-    
-    const image = webcamRef.current?.getScreenshot();
     
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
@@ -113,13 +129,17 @@ export default function HomeAbsensi() {
       if (res.ok) {
         Swal.fire({ title: "Berhasil!", text: "Absensi Terekam", icon: "success", timer: 1500, showConfirmButton: false });
         router.push("/admin/dashboard");
+      } else {
+        throw new Error("Gagal kirim");
       }
     } catch (error) {
       setIsProcessing(false);
-      setPesan("Gagal Kirim Data");
+      setJarakWajah("none"); // Reset agar bisa coba lagi
+      Swal.fire("Error", "Gagal mengirim data ke server.", "error");
     }
   };
 
+  // Tampilan Menu
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-6">
@@ -127,16 +147,18 @@ export default function HomeAbsensi() {
           <div className="w-20 h-20 bg-red-600 rounded-3xl mx-auto flex items-center justify-center shadow-xl mb-4">
             <span className="text-white text-3xl font-black">S</span>
           </div>
-          <h1 className="text-2xl font-black text-slate-800">SANPIO SYSTEM</h1>
-          <div className="space-y-4 mt-8">
+          <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase">Sanpio System</h1>
+          <p className="text-slate-400 text-[10px] tracking-widest mt-1 mb-8">BIOMETRIC ATTENDANCE</p>
+          
+          <div className="space-y-4">
             <button 
               disabled={!modelsLoaded}
               onClick={() => { setView("absen"); getInitialLocation(); }} 
-              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600' : 'bg-slate-400'} text-white rounded-2xl font-bold shadow-lg transition-all active:scale-95`}
+              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-300'} text-white rounded-2xl font-bold shadow-lg transition-all active:scale-95`}
             >
-              {modelsLoaded ? "🚀 MULAI ABSENSI" : "LOADING AI..."}
+              {modelsLoaded ? "🚀 MULAI ABSENSI" : "MENYIAPKAN AI..."}
             </button>
-            <button onClick={() => router.push("/admin/login")} className="w-full py-4 bg-white text-slate-700 border-2 border-slate-200 rounded-2xl font-bold hover:bg-slate-50 transition-all active:scale-95">
+            <button onClick={() => router.push("/admin/login")} className="w-full py-4 bg-white text-slate-700 border-2 border-slate-100 rounded-2xl font-bold hover:bg-slate-50 transition-all active:scale-95">
               🔐 LOGIN ADMIN
             </button>
           </div>
@@ -145,59 +167,60 @@ export default function HomeAbsensi() {
     );
   }
 
+  // Tampilan Kamera
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 relative font-sans text-white">
-      <button onClick={() => { setView("menu"); setJarakWajah("none"); }} className="absolute top-6 left-6 z-50 bg-white/10 px-4 py-2 rounded-xl backdrop-blur-md text-xs font-bold border border-white/10">
+      <button onClick={() => { setView("menu"); setJarakWajah("none"); setIsProcessing(false); }} className="absolute top-6 left-6 z-50 bg-white/10 px-4 py-2 rounded-xl backdrop-blur-md text-xs font-bold border border-white/10">
         ← BATAL
       </button>
 
-      <div className="relative w-full max-w-md aspect-[3/4] rounded-[30px] overflow-hidden border border-white/10 bg-slate-900 shadow-[0_0_60px_rgba(220,38,38,0.3)]">
-        <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "user" }} className="w-full h-full object-cover grayscale-[0.2]" />
+      <div className="relative w-full max-w-md aspect-[3/4] rounded-[30px] overflow-hidden border border-white/10 bg-slate-900 shadow-[0_0_60px_rgba(220,38,38,0.2)]">
+        <Webcam 
+          ref={webcamRef} 
+          audio={false} 
+          screenshotFormat="image/jpeg" 
+          videoConstraints={{ facingMode: "user" }} 
+          className="w-full h-full object-cover grayscale-[0.2]" 
+        />
         
-        {/* FRAME PENDETEKSI MERAH */}
+        {/* FRAME SCANNER */}
         <div className="absolute inset-0 z-20 flex items-center justify-center">
-            <div className="relative w-72 h-72">
+            <div className={`relative w-72 h-72 transition-all duration-500 ${jarakWajah === 'pas' ? 'scale-105' : 'scale-100'}`}>
                 <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-red-600 rounded-tl-xl"></div>
                 <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-red-600 rounded-tr-xl"></div>
                 <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-red-600 rounded-bl-xl"></div>
                 <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-red-600 rounded-br-xl"></div>
-                <div className="absolute w-full h-[3px] bg-red-500 shadow-[0_0_20px_rgba(220,38,38,0.9)] animate-scan-red"></div>
+                <div className="absolute w-full h-[2px] bg-red-500 shadow-[0_0_20px_rgba(220,38,38,0.9)] animate-scan-red"></div>
             </div>
         </div>
 
-        {/* INSTRUKSI DINAMIS BIOMETRIK */}
+        {/* OVERLAY INSTRUKSI */}
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-between py-12 pointer-events-none">
-          <div className="bg-black/60 backdrop-blur-md border border-white/10 px-6 py-2 rounded-full">
-            <p className="text-red-500 font-black text-sm tracking-widest animate-pulse">
-              {jarakWajah === "pas" && "POSISI PAS! TAHAN..."}
-              {jarakWajah === "jauh" && "DEKATKAN WAJAH ANDA"}
-              {jarakWajah === "dekat" && "KAMERA TERLALU DEKAT"}
-              {jarakWajah === "none" && "MASUKKAN WAJAH KE FRAME"}
+          <div className="bg-black/70 backdrop-blur-md border border-white/10 px-6 py-3 rounded-2xl">
+            <p className="text-red-500 font-black text-sm tracking-widest uppercase">
+              {jarakWajah === "pas" && "✅ Posisi Pas! Tahan..."}
+              {jarakWajah === "jauh" && "❌ Dekatkan Wajah"}
+              {jarakWajah === "dekat" && "❌ Terlalu Dekat"}
+              {jarakWajah === "none" && "🔍 Mencari Wajah..."}
             </p>
           </div>
 
-          <div className="w-full px-10 text-center space-y-2">
-            <p className="text-[10px] text-white/50 tracking-[0.3em] font-light">SYSTEM BIOMETRIC SCAN V.2</p>
-            <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-              <div className={`h-full bg-red-600 ${jarakWajah === "pas" ? "animate-loading" : "w-0"}`}></div>
+          <div className="w-full px-10 text-center space-y-3">
+            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden w-48 mx-auto">
+              <div className={`h-full bg-red-600 transition-all duration-700 ${jarakWajah === "pas" ? "w-full" : "w-0"}`}></div>
             </div>
-            <p className="text-[9px] text-red-500/80 font-mono mt-1">{pesan}</p>
+            <p className="text-[10px] text-white/40 tracking-[0.4em] font-bold uppercase italic">{pesan}</p>
           </div>
         </div>
       </div>
 
       <style jsx global>{`
         @keyframes scan-red {
-          0% { top: 5%; opacity: 0.3; }
+          0% { top: 5%; opacity: 0.2; }
           50% { opacity: 1; }
-          100% { top: 95%; opacity: 0.3; }
-        }
-        @keyframes loading {
-          0% { width: 0%; }
-          100% { width: 100%; }
+          100% { top: 95%; opacity: 0.2; }
         }
         .animate-scan-red { animation: scan-red 2s infinite ease-in-out; }
-        .animate-loading { animation: loading 1.5s linear; }
       `}</style>
     </div>
   );
