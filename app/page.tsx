@@ -15,14 +15,14 @@ export default function HomeAbsensi() {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const router = useRouter();
 
-  // Konfigurasi Video Super Ringan
+  // Konfigurasi Video & Capture Ringan
   const videoConstraints = {
     width: 320,
     height: 480,
-    facingMode: "user" as const, // Fixed type
+    facingMode: "user" as const,
   };
 
-  // 1. LOAD MODEL
+  // 1. LOAD MODEL (Hanya detector dasar untuk kecepatan)
   useEffect(() => {
     const loadModels = async () => {
       try {
@@ -52,51 +52,59 @@ export default function HomeAbsensi() {
             setPesan("Mencari Wajah...");
           } else {
             const { width } = detection.box;
-            if (width < 80) { 
+            if (width < 85) { 
               setJarakWajah("jauh"); 
-              setPesan("Dekatkan");
-            } else if (width > 300) { 
+              setPesan("Dekatkan Wajah");
+            } else if (width > 280) { 
               setJarakWajah("dekat"); 
-              setPesan("Jauhkan");
+              setPesan("Terlalu Dekat");
             } else {
               setJarakWajah("pas");
               setPesan("⚡ CAPTURE!");
               setIsProcessing(true);
               clearInterval(interval);
               
-              // Fungsi capture dipanggil tanpa parameter untuk menghindari error TS
+              // Langsung ambil screenshot
               const image = webcamRef.current?.getScreenshot();
               if (image && coords) {
                 sendToServer(image, coords.lat, coords.lng);
+              } else {
+                setIsProcessing(false);
+                setPesan("Gagal Capture");
               }
             }
           }
         }
-      }, 80);
+      }, 80); 
     }
     return () => clearInterval(interval);
   }, [view, modelsLoaded, isProcessing, coords]);
 
-  // 3. KIRIM DATA KILAT
+  // 3. KIRIM DATA KE API
   const sendToServer = async (image: string, lat: number, lng: number) => {
     setPesan("🚀 Mengirim...");
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        headers: { 
+          "Content-Type": "application/json", 
+          "Accept": "application/json" 
+        },
         body: JSON.stringify({ image, lat, lng }),
       });
       
+      const responseData = await res.json();
+
       if (res.ok) {
-        router.push("/dashboard-absensi");
         Swal.fire({ title: "Berhasil!", icon: "success", timer: 1000, showConfirmButton: false });
+        router.push("/dashboard-absensi");
       } else {
-        throw new Error("Gagal");
+        throw new Error(responseData.message || "Ditolak Server");
       }
     } catch (e: any) {
       setIsProcessing(false);
       setJarakWajah("none");
-      Swal.fire("Gagal", "Cek Koneksi", "error");
+      Swal.fire("Gagal Kirim", e.message, "error");
     }
   };
 
@@ -107,7 +115,7 @@ export default function HomeAbsensi() {
         setView("absen");
       },
       () => Swal.fire("GPS Mati", "Aktifkan lokasi!", "error"),
-      { enableHighAccuracy: false }
+      { enableHighAccuracy: true }
     );
   };
 
@@ -119,13 +127,13 @@ export default function HomeAbsensi() {
             <span className="text-white text-3xl font-black italic">⚡</span>
           </div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none">Turbo Absen</h1>
-          <p className="text-amber-800 font-bold text-[10px] tracking-widest mt-2 mb-8 italic uppercase text-opacity-50 tracking-[0.2em]">Sanpio System</p>
+          <p className="text-amber-800 font-bold text-[10px] tracking-widest mt-2 mb-8 italic uppercase opacity-50">Sanpio System</p>
           <button 
             disabled={!modelsLoaded}
             onClick={startAbsenFlow} 
-            className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 shadow-red-200' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all active:scale-95`}
+            className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
           >
-            {modelsLoaded ? "MULAI" : "MEMUAT..."}
+            {modelsLoaded ? "🚀 MULAI ABSEN" : "MEMUAT AI..."}
           </button>
         </div>
       </div>
@@ -134,32 +142,61 @@ export default function HomeAbsensi() {
 
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative bg-batik overflow-hidden">
+      <button 
+        onClick={() => { setView("menu"); setIsProcessing(false); }} 
+        className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg"
+      >
+        ← BATAL
+      </button>
+
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
         <Webcam 
           ref={webcamRef} 
           audio={false} 
           screenshotFormat="image/jpeg" 
-          screenshotQuality={0.3} // KUALITAS DIATUR DI SINI AGAR TIDAK ERROR
+          screenshotQuality={0.3} 
           videoConstraints={videoConstraints} 
-          className="w-full h-full object-cover" 
+          className="w-full h-full object-cover shadow-inner" 
         />
         
+        {/* Frame Scanner Visual */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-            <div className={`relative w-72 h-72 border-2 rounded-full transition-all duration-300 ${jarakWajah === 'pas' ? 'border-green-400 scale-110' : 'border-white/30'}`}>
+            <div className={`relative w-64 h-64 border-2 rounded-full transition-all duration-300 ${jarakWajah === 'pas' ? 'border-green-400 scale-110' : 'border-white/20'}`}>
                 <div className={`absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin-slow ${jarakWajah === 'pas' ? 'opacity-0' : 'opacity-100'}`}></div>
             </div>
         </div>
 
-        <div className="absolute bottom-0 w-full z-30 bg-black/80 backdrop-blur-md p-6 border-t border-white/10">
-            <div className="flex justify-between items-center text-white/50 text-[8px] font-mono mb-4 tracking-widest uppercase">
-                <span>Lat: {coords?.lat.toFixed(5)}</span>
-                <span>Lng: {coords?.lng.toFixed(5)}</span>
-            </div>
-            <div className="flex items-center gap-3">
-                <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className={`h-full bg-red-600 transition-all ${jarakWajah === "pas" ? "w-full" : "w-1/4"}`}></div>
+        {/* INFO KOORDINAT GPS (MODERN LAYER) */}
+        <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
+                <div className="flex justify-between items-center mb-3">
+                    <div className="space-y-1">
+                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Latitude</p>
+                        <p className="text-[12px] font-mono text-white font-bold leading-none">
+                            {coords ? coords.lat.toFixed(7) : "Searching..."}
+                        </p>
+                    </div>
+                    <div className="w-[1px] h-6 bg-white/20"></div>
+                    <div className="space-y-1 text-right">
+                        <p className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Longitude</p>
+                        <p className="text-[12px] font-mono text-white font-bold leading-none">
+                            {coords ? coords.lng.toFixed(7) : "Searching..."}
+                        </p>
+                    </div>
                 </div>
-                <span className="text-[10px] text-white font-black uppercase italic tracking-widest">{pesan}</span>
+                
+                {/* Progress Bar & Status Pesan */}
+                <div className="flex items-center gap-3 border-t border-white/10 pt-3">
+                    <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full bg-red-600 transition-all duration-700 
+                          ${jarakWajah === "pas" ? "w-full" : "w-1/3"}`}
+                        ></div>
+                    </div>
+                    <span className="text-[9px] text-amber-200 font-black uppercase italic tracking-widest">
+                      {pesan}
+                    </span>
+                </div>
             </div>
         </div>
       </div>
