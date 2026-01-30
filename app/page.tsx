@@ -64,7 +64,6 @@ export default function HomeAbsensi() {
               setIsProcessing(true);
               clearInterval(interval);
               
-              // Langsung ambil screenshot
               const image = webcamRef.current?.getScreenshot();
               if (image && coords) {
                 sendToServer(image, coords.lat, coords.lng);
@@ -80,7 +79,7 @@ export default function HomeAbsensi() {
     return () => clearInterval(interval);
   }, [view, modelsLoaded, isProcessing, coords]);
 
-  // 3. KIRIM DATA KE API
+  // 3. KIRIM DATA KE API (Dengan Debugging "Failed to Fetch")
   const sendToServer = async (image: string, lat: number, lng: number) => {
     setPesan("🚀 Mengirim...");
     try {
@@ -104,7 +103,8 @@ export default function HomeAbsensi() {
     } catch (e: any) {
       setIsProcessing(false);
       setJarakWajah("none");
-      Swal.fire("Gagal Kirim", e.message, "error");
+      // Menampilkan error detail untuk melacak masalah "Failed to Fetch"
+      Swal.fire("Gagal Kirim", "Masalah: " + e.message + ". Cek koneksi atau izin CORS di server.", "error");
     }
   };
 
@@ -119,6 +119,7 @@ export default function HomeAbsensi() {
     );
   };
 
+  // --- TAMPILAN DASHBOARD AWAL ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -128,23 +129,36 @@ export default function HomeAbsensi() {
           </div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none">Turbo Absen</h1>
           <p className="text-amber-800 font-bold text-[10px] tracking-widest mt-2 mb-8 italic uppercase opacity-50">Sanpio System</p>
-          <button 
-            disabled={!modelsLoaded}
-            onClick={startAbsenFlow} 
-            className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
-          >
-            {modelsLoaded ? "🚀 MULAI ABSEN" : "MEMUAT AI..."}
-          </button>
+          
+          <div className="space-y-4">
+            <button 
+              disabled={!modelsLoaded}
+              onClick={startAbsenFlow} 
+              className={`w-full py-4 ${modelsLoaded ? 'bg-red-600 hover:bg-red-700 active:scale-95' : 'bg-slate-300'} text-white rounded-2xl font-black shadow-lg transition-all`}
+            >
+              {modelsLoaded ? "🚀 MULAI ABSEN" : "MEMUAT AI..."}
+            </button>
+
+            {/* FITUR LOGIN ADMIN YANG SEBELUMNYA HILANG */}
+            <button 
+              onClick={() => router.push("/admin/login")} 
+              className="w-full py-4 bg-white text-slate-700 border-2 border-amber-100 rounded-2xl font-bold hover:bg-amber-50 transition-all active:scale-95"
+            >
+              🔐 LOGIN ADMIN
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
+  // --- TAMPILAN KAMERA ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative bg-batik overflow-hidden">
+      {/* FITUR TOMBOL BATAL */}
       <button 
         onClick={() => { setView("menu"); setIsProcessing(false); }} 
-        className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg"
+        className="absolute top-6 left-6 z-50 bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black shadow-lg active:scale-90"
       >
         ← BATAL
       </button>
@@ -166,7 +180,7 @@ export default function HomeAbsensi() {
             </div>
         </div>
 
-        {/* INFO KOORDINAT GPS (MODERN LAYER) */}
+        {/* INFO KOORDINAT GPS (Paling Lengkap) */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-10 pb-6 px-6">
             <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-4 shadow-2xl">
                 <div className="flex justify-between items-center mb-3">
@@ -185,7 +199,6 @@ export default function HomeAbsensi() {
                     </div>
                 </div>
                 
-                {/* Progress Bar & Status Pesan */}
                 <div className="flex items-center gap-3 border-t border-white/10 pt-3">
                     <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
                         <div 
