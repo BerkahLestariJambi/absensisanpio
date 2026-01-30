@@ -21,11 +21,10 @@ export default function HomeAbsensi() {
   const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const router = useRouter();
 
-  // Konfigurasi Lokasi Sekolah (Sesuaikan lat & lng sekolahmu)
   const schoolCoords = { lat: -6.2000, lng: 106.8000 };
-  const maxRadius = 50; // dalam meter
+  const maxRadius = 50;
 
-  // 1. LOAD MODELS & DATABASE GURU (Optimization: Tiny Detector)
+  // 1. LOAD MODELS & DATABASE GURU
   useEffect(() => {
     const initEverything = async () => {
       try {
@@ -53,14 +52,12 @@ export default function HomeAbsensi() {
 
           const validDescriptors = labeledDescriptors.filter((d): d is faceapi.LabeledFaceDescriptors => d !== null);
           if (validDescriptors.length > 0) {
-            // Threshold 0.35: Sangat cepat & toleran terhadap cahaya
             setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.35));
           }
         }
         setModelsLoaded(true);
         setPesan("Sistem Siap");
       } catch (err) {
-        console.error("AI Error:", err);
         setPesan("Gagal Load AI");
       }
     };
@@ -110,17 +107,17 @@ export default function HomeAbsensi() {
             }
           }
         }
-      }, 150); // Scan setiap 150ms
+      }, 150);
     }
     return () => clearInterval(interval);
   }, [view, modelsLoaded, coords, isProcessing, faceMatcher]);
 
+  // Perbaikan handleAutoCapture (Hapus object quality agar build sukses)
   const handleAutoCapture = (id: string) => {
-    const image = webcamRef.current?.getScreenshot({ quality: 0.5 }); // Kompres gambar ke 50%
+    const image = webcamRef.current?.getScreenshot(); 
     if (image && coords) sendToServer(image, coords.lat, coords.lng, id);
   };
 
-  // 3. KIRIM DATA KE BACKEND
   const sendToServer = async (image: string, lat: number, lng: number, guru_id: string) => {
     setPesan("Mengirim...");
     try {
@@ -133,7 +130,7 @@ export default function HomeAbsensi() {
       const data = await res.json();
       if (res.ok) {
         await Swal.fire({ title: "Berhasil!", text: "Absensi Anda telah tercatat.", icon: "success", timer: 2000, showConfirmButton: false });
-        router.push("/dashboard-absensi"); // KE DASHBOARD UMUM, BUKAN ADMIN
+        router.push("/dashboard-absensi"); 
       } else {
         throw new Error(data.message || "Ditolak Server");
       }
@@ -155,7 +152,6 @@ export default function HomeAbsensi() {
     );
   };
 
-  // UI RENDERING
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -189,9 +185,15 @@ export default function HomeAbsensi() {
       </button>
 
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
-        <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "user" }} className="w-full h-full object-cover" />
+        <Webcam 
+          ref={webcamRef} 
+          audio={false} 
+          screenshotFormat="image/jpeg" 
+          screenshotQuality={0.5} // Kompresi dilakukan di sini
+          videoConstraints={{ facingMode: "user" }} 
+          className="w-full h-full object-cover" 
+        />
         
-        {/* Frame Scanner */}
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
             <div className={`relative w-72 h-72 transition-all duration-500 ${jarakWajah === 'pas' ? 'border-green-500 scale-105' : 'border-red-600'}`}>
                 <div className={`absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 rounded-tl-xl ${jarakWajah === 'pas' ? 'border-green-500' : 'border-red-600'}`}></div>
@@ -202,7 +204,6 @@ export default function HomeAbsensi() {
             </div>
         </div>
 
-        {/* Status Bar */}
         <div className="absolute bottom-0 w-full z-30 bg-black/60 backdrop-blur-md p-6">
             <div className="flex items-center gap-3">
                 <div className="flex-1 h-1.5 bg-white/20 rounded-full overflow-hidden">
@@ -216,7 +217,7 @@ export default function HomeAbsensi() {
       <style jsx global>{`
         .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
         @keyframes scan-red { 0% { top: 5%; } 100% { top: 95%; } }
-        .animate-scan-red { position: absolute; animation: scan-red 2.5s infinite ease-in-out; }
+        .animate-scan-red { position: absolute; width: 100%; animation: scan-red 2.5s infinite ease-in-out; }
       `}</style>
     </div>
   );
