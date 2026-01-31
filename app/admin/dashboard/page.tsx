@@ -11,6 +11,8 @@ export default function AdminDashboard() {
   const [rekap, setRekap] = useState([]);
   const [loading, setLoading] = useState(false);
   
+  // State untuk Data Sekolah & User
+  const [schoolName, setSchoolName] = useState("SANPIO");
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
 
@@ -27,19 +29,26 @@ export default function AdminDashboard() {
         "Accept": "application/json"
       };
 
-      const [resGuru, resIzin, resRekap] = await Promise.all([
+      const [resGuru, resIzin, resRekap, resSetting] = await Promise.all([
         fetch(`${API_URL}/admin/guru`, { headers }),
         fetch(`${API_URL}/admin/daftar-izin`, { headers }),
-        fetch(`${API_URL}/admin/rekap-absensi`, { headers })
+        fetch(`${API_URL}/admin/rekap-absensi`, { headers }),
+        fetch(`${API_URL}/setting-app`) // Mengambil setting umum sekolah
       ]);
       
       const dataGuru = await resGuru.json();
       const dataIzin = await resIzin.json();
       const dataRekap = await resRekap.json();
+      const dataSetting = await resSetting.json();
 
       setGurus(Array.isArray(dataGuru) ? dataGuru : dataGuru.data || []);
       setIzins(Array.isArray(dataIzin) ? dataIzin : dataIzin.data || []);
       setRekap(Array.isArray(dataRekap) ? dataRekap : dataRekap.data || []);
+      
+      // Update nama sekolah jika tersedia di database
+      if (dataSetting && dataSetting.nama_sekolah) {
+        setSchoolName(dataSetting.nama_sekolah);
+      }
     } catch (err) {
       console.error("Gagal sinkronisasi data.");
     } finally {
@@ -89,7 +98,7 @@ export default function AdminDashboard() {
       <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[30px] shadow-sm border border-slate-100">
         <div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase">
-            <span className="text-red-600">SANPIO</span> {userRole?.replace("_", " ")}
+            <span className="text-red-600">{schoolName}</span> {userRole?.replace("_", " ")}
           </h1>
           <p className="text-slate-400 font-bold text-[10px] tracking-[0.2em] uppercase">Petugas: {userName}</p>
         </div>
@@ -162,7 +171,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB REKAP KEHADIRAN (SUDAH DIPERBAIKI) */}
+        {/* TAB REKAP KEHADIRAN */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
             <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
@@ -220,7 +229,7 @@ export default function AdminDashboard() {
                         </span>
                       </td>
                       <td className="p-6">
-                        <div className={`text-[10px] font-bold uppercase leading-relaxed ${r.keterangan_lokasi.includes('luar') ? 'text-red-500' : 'text-slate-400'}`}>
+                        <div className={`text-[10px] font-bold uppercase leading-relaxed ${r.keterangan_lokasi?.includes('luar') ? 'text-red-500' : 'text-slate-400'}`}>
                           {r.keterangan_lokasi}
                         </div>
                       </td>
