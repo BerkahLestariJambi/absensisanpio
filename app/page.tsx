@@ -21,7 +21,7 @@ export default function HomeAbsensi() {
   const router = useRouter();
   const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
 
-  // --- 1. INITIAL LOAD ---
+  // --- 1. INITIAL LOAD (AI & Config) ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
@@ -121,12 +121,15 @@ export default function HomeAbsensi() {
   // --- 3. LOGIKA PULANG CEPAT ---
   const handleRecognitionSuccess = async (guruId: string) => {
     try {
-      // Cek status ke Backend
+      // 1. Ambil Foto Screenshot saat wajah terdeteksi
+      const screenshot = webcamRef.current?.getScreenshot();
+
+      // 2. Cek status ke Backend
       const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
       const checkData = await checkRes.json();
       const jumlahAbsen = checkData.jumlah_absen || 0;
 
-      // Parsing Waktu WITA
+      // 3. Parsing Waktu WITA
       const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
           timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
       }).format(new Date());
@@ -142,7 +145,7 @@ export default function HomeAbsensi() {
       const menitPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
       const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
-      // Validasi: Jika sudah absen masuk dan berada di jam pulang cepat
+      // Validasi Pulang Cepat
       if (jumlahAbsen > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
         const { value: alasan } = await Swal.fire({
           title: "PULANG CEPAT",
@@ -161,13 +164,13 @@ export default function HomeAbsensi() {
         });
 
         if (alasan) {
-          sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, alasan);
+          sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot, alasan);
         } else {
           resetScanner();
         }
       } else {
         // Mode Normal (Masuk atau Pulang Tepat Waktu)
-        sendToServer(guruId, coords?.lat || 0, coords?.lng || 0);
+        sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot);
       }
     } catch (e) {
       resetScanner();
@@ -182,12 +185,18 @@ export default function HomeAbsensi() {
   };
 
   // --- 4. KIRIM KE SERVER ---
-  const sendToServer = async (guruId: string, lat: number, lng: number, statusTambahan?: string) => {
+  const sendToServer = async (guruId: string, lat: number, lng: number, image?: string | null, statusTambahan?: string) => {
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guru_id: guruId, lat, lng, status_tambahan: statusTambahan }),
+        body: JSON.stringify({ 
+            guru_id: guruId, 
+            lat, 
+            lng, 
+            status_tambahan: statusTambahan,
+            image: image // Foto bukti wajah hasil scan (Base64)
+        }),
       });
       const data = await res.json();
       
@@ -227,7 +236,7 @@ export default function HomeAbsensi() {
     }
   };
 
-  // --- UI RENDER (Desain Tetap) ---
+  // --- UI RENDER ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -252,7 +261,13 @@ export default function HomeAbsensi() {
         <button onClick={resetScanner} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black z-50">← KEMBALI</button>
       </div>
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
-        <Webcam ref={webcamRef} audio={false} videoConstraints={videoConstraints} className="absolute inset-0 w-full h-full object-cover" />
+        <Webcam 
+          ref={webcamRef} 
+          audio={false} 
+          screenshotFormat="image/jpeg"
+          videoConstraints={videoConstraints} 
+          className="absolute inset-0 w-full h-full object-cover" 
+        />
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" />
         <div className={`absolute left-0 w-full h-[4px] bg-cyan-400 shadow-[0_0_25px_#00f2ff] z-20 ${isProcessing ? 'animate-fast-scan' : 'animate-slow-scan'}`}></div>
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/95 p-6">
