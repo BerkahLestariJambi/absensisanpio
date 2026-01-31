@@ -8,20 +8,21 @@ import { useRouter } from "next/navigation";
 export default function HomeAbsensi() {
   const [view, setView] = useState<"menu" | "absen">("menu");
   const webcamRef = useRef<Webcam>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [pesan, setPesan] = useState("Menyiapkan Sistem...");
   const [isProcessing, setIsProcessing] = useState(false);
   const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const [config, setConfig] = useState<any>(null);
   const [scanStatus, setScanStatus] = useState<"searching" | "locked" | "success">("searching");
-  const [lightOn, setLightOn] = useState(false);
   
   const isLocked = useRef(false);
   const scanIntervalRef = useRef<any>(null);
+
   const router = useRouter();
+  const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
 
-  const videoConstraints = { width: 480, height: 640, facingMode: "user" as const };
-
+  // --- 1. INITIAL LOAD (AI & Config) ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
@@ -45,8 +46,7 @@ export default function HomeAbsensi() {
             try {
               const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
-              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
-                .withFaceLandmarks().withFaceDescriptor();
+              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
               return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
             } catch (e) { return null; }
           })
@@ -57,32 +57,46 @@ export default function HomeAbsensi() {
           setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
           if (view === "menu") setPesan("⚡ Scanner Siap");
         }
-      } catch (err) { setPesan("Gagal memuat sistem"); }
+      } catch (err) { 
+        setPesan("Gagal memuat sistem");
+      }
     };
     loadSistem();
 
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition(
         (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        null, { enableHighAccuracy: true }
+        (err) => console.error("GPS Error:", err), 
+        { enableHighAccuracy: true }
       );
     }
   }, []);
 
+  // --- 2. ENGINE SCANNER ---
   useEffect(() => {
     if (view === "absen" && !isProcessing) {
       isLocked.current = false; 
       scanIntervalRef.current = setInterval(async () => {
         if (isProcessing || isLocked.current) return;
 
-        if (webcamRef.current?.video?.readyState === 4) {
+        if (webcamRef.current?.video?.readyState === 4 && canvasRef.current) {
           const video = webcamRef.current.video;
+          const canvas = canvasRef.current;
+          const displaySize = { width: video.videoWidth, height: video.videoHeight };
+          faceapi.matchDimensions(canvas, displaySize);
+
           const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
-            .withFaceLandmarks().withFaceDescriptor();
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+
+          const ctx = canvas.getContext("2d");
+          ctx?.clearRect(0, 0, canvas.width, canvas.height);
 
           if (detection) {
-            const width = detection.box.width;
-            if (width >= 90 && width <= 270) {
+            // Fix Type Error: Akses .detection.box
+            const { width } = detection.detection.box;
+
+            if (width >= 80 && width <= 280) {
               setScanStatus("locked");
               setPesan("Wajah Terkunci... Mohon Diam");
               if (faceMatcher && !isLocked.current) {
@@ -92,64 +106,62 @@ export default function HomeAbsensi() {
                   setIsProcessing(true);
                   setScanStatus("success");
                   clearInterval(scanIntervalRef.current); 
+                  setPesan("Sinkronisasi Biometrik...");
                   handleRecognitionSuccess(match.label);
                 }
               }
-            } else {
+            } else { 
               setScanStatus("searching");
-              setPesan(width < 90 ? "Dekatkan Wajah ke Bingkai" : "Terlalu Dekat!");
+              setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!"); 
             }
-          } else {
+          } else { 
             setScanStatus("searching");
-            setPesan("Posisikan Wajah di Tengah");
+            setPesan("Mencari Wajah..."); 
           }
         }
-      }, 200); 
+      }, 150); 
     }
     return () => clearInterval(scanIntervalRef.current);
   }, [view, faceMatcher, isProcessing]);
 
-  const handleToggleLight = async () => {
-    const nextStatus = !lightOn;
-    setLightOn(nextStatus);
-    if (webcamRef.current?.video) {
-      const stream = webcamRef.current.video.srcObject as MediaStream;
-      const track = stream.getVideoTracks()[0];
-      try {
-        const caps = track.getCapabilities() as any;
-        if (caps.torch) await track.applyConstraints({ advanced: [{ torch: nextStatus }] } as any);
-      } catch (e) {}
-    }
-  };
-
+  // --- 3. LOGIKA RECOGNITION SUCCESS ---
   const handleRecognitionSuccess = async (guruId: string) => {
     try {
       const screenshot = webcamRef.current?.getScreenshot();
       const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
       const checkData = await checkRes.json();
-      
+      const jumlahAbsen = checkData.jumlah_absen || 0;
+
       const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
           timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
       }).format(new Date());
       const [h, m] = jamSekarangWita.split(/[.:]/).map(Number);
-      const now = h * 60 + m;
+      const totalMenitSekarang = h * 60 + m;
 
-      const parseT = (t: string) => {
+      const parseConfig = (t: string) => {
           if(!t) return 0;
           const [hh, mm] = t.split(/[.:]/).map(Number);
           return hh * 60 + mm;
       }
 
-      if (checkData.jumlah_absen > 0 && now >= parseT(config?.jam_pulang_cepat_mulai) && now < parseT(config?.jam_pulang_normal)) {
+      const menitPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
+      const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
+
+      if (jumlahAbsen > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
         const { value: alasan } = await Swal.fire({
           title: "PULANG CEPAT",
+          text: "Anda terdeteksi pulang mendahului jadwal. Pilih alasan:",
+          icon: "warning",
           input: "select",
           inputOptions: { "Izin": "Izin", "Sakit": "Sakit", "Tugas Luar": "Tugas Luar" },
           inputPlaceholder: "-- Pilih Alasan --",
           showCancelButton: true,
           confirmButtonText: "Kirim",
-          inputValidator: (v) => !v && 'Alasan wajib dipilih!'
+          cancelButtonText: "Batal",
+          allowOutsideClick: false,
+          inputValidator: (value) => { if (!value) return 'Alasan wajib dipilih!'; }
         });
+
         if (alasan) sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot, alasan);
         else resetScanner();
       } else {
@@ -158,72 +170,113 @@ export default function HomeAbsensi() {
     } catch (e) { resetScanner(); }
   };
 
-  const sendToServer = async (guruId: string, lat: number, lng: number, image?: string | null, statusTambahan?: string) => {
-    if (lat === 0 || lng === 0) {
-      await Swal.fire("GPS Belum Siap", "Mohon tunggu...", "warning");
-      return resetScanner();
-    }
-    try {
-      const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guru_id: guruId, lat, lng, status_tambahan: statusTambahan, image }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        await Swal.fire({ title: "BERHASIL", html: data.message, icon: "success", timer: 2000, showConfirmButton: false });
-        router.push("/dashboard-absensi");
-      } else {
-        await Swal.fire("GAGAL", data.message, "error");
-        resetScanner();
-      }
-    } catch (e) { resetScanner(); }
-  };
-
   const resetScanner = () => {
     isLocked.current = false;
     setIsProcessing(false);
     setScanStatus("searching");
-    setLightOn(false);
     setView("menu");
+    setPesan("⚡ Scanner Siap");
   };
 
+  // --- 4. KIRIM KE SERVER ---
+  const sendToServer = async (guruId: string, lat: number, lng: number, image?: string | null, statusTambahan?: string) => {
+    try {
+      if (lat === 0 || lng === 0) {
+         await Swal.fire("GPS Belum Siap", "Mohon tunggu hingga lokasi terdeteksi.", "warning");
+         resetScanner();
+         return;
+      }
+
+      const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guru_id: guruId, lat, lng, status_tambahan: statusTambahan, image: image }),
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        await Swal.fire({
+          title: "BERHASIL",
+          html: `<div class="text-sm"><b>${data.message}</b><br/><small class="text-slate-500">${new Date().toLocaleTimeString('id-ID')}</small></div>`,
+          icon: "success",
+          timer: 3000,
+          showConfirmButton: false
+        });
+
+        const { isConfirmed } = await Swal.fire({
+          title: "Absensi Selesai",
+          text: "Ingin melihat riwayat absensi Anda?",
+          icon: "question",
+          showCancelButton: true,
+          confirmButtonText: "Ya, Dashboard",
+          cancelButtonText: "Menu Utama",
+          confirmButtonColor: "#3085d6",
+          cancelButtonColor: "#aaa",
+          allowOutsideClick: false
+        });
+
+        if (isConfirmed) router.push("/dashboard-absensi");
+        else resetScanner();
+      } else {
+        await Swal.fire("GAGAL", data.message, "error");
+        resetScanner();
+      }
+    } catch (e) {
+      Swal.fire("Koneksi Error", "Gagal menghubungi server.", "error");
+      resetScanner();
+    }
+  };
+
+  // --- UI RENDER ---
   if (view === "menu") {
     return (
-      <div className="min-h-screen bg-[#fdf5e6] flex items-center justify-center p-6 bg-batik">
+      <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
         <div className="w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
-          <div className="w-20 h-20 mx-auto mb-4 bg-slate-50 rounded-2xl flex items-center justify-center p-2 border border-slate-100 shadow-inner">
-            {config?.logo_sekolah && <img src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`} className="max-h-full" alt="logo" />}
+          <div className="w-24 h-24 mx-auto mb-4 flex items-center justify-center overflow-hidden bg-slate-50 rounded-2xl shadow-inner">
+            {config?.logo_sekolah && <img src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`} alt="Logo" className="max-h-full object-contain" />}
           </div>
-          <h2 className="text-md font-black text-slate-700 uppercase tracking-tight">{config?.nama_sekolah || "SISTEM ABSENSI"}</h2>
-          <p className="text-[10px] text-slate-400 font-bold mb-6">TAP KARTU DIGITAL ANDA</p>
-          <button disabled={!faceMatcher || !coords} onClick={() => setView("absen")} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black shadow-lg active:scale-95 transition-all">
-            MULAI SCAN WAJAH
+          <h2 className="text-lg font-bold text-slate-700 leading-tight uppercase mb-1">{config?.nama_sekolah || "Memuat..."}</h2>
+          <p className="text-[10px] text-slate-500 font-medium mb-6 uppercase tracking-wider">TP {config?.tahun_pelajaran} | SEM {config?.semester}</p>
+          
+          <div className="my-6 p-3 bg-amber-50 rounded-xl border border-dashed border-amber-200">
+             <p className="text-[11px] text-amber-700 font-bold uppercase italic">
+               {coords ? "📍 Lokasi Terdeteksi" : "⌛ Mencari Sinyal GPS..."}
+             </p>
+          </div>
+
+          <button 
+            disabled={!faceMatcher || !coords} 
+            onClick={() => setView("absen")} 
+            className={`w-full py-5 ${(!faceMatcher || !coords) ? 'bg-slate-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 active:scale-95'} text-white rounded-2xl font-black shadow-lg text-lg flex items-center justify-center gap-3 transition-all`}
+          >
+            <span className="text-2xl">👤</span> {faceMatcher ? (coords ? "ABSEN SEKARANG" : "MENUNGGU GPS...") : "LOADING AI..."}
           </button>
+          
+          <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors">🔐 Admin Login</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`min-h-screen flex flex-col items-center justify-center relative overflow-hidden transition-colors duration-500 ${lightOn ? 'bg-white' : 'bg-black'}`}>
-      
-      {/* Tombol Batal & Lampu */}
-      <div className="absolute top-6 w-full max-w-md px-6 flex justify-between z-50">
-        <button onClick={resetScanner} className="bg-black/40 text-white px-4 py-2 rounded-full text-[10px] font-black backdrop-blur-xl border border-white/20">
-          ← BATAL
-        </button>
-        <button onClick={handleToggleLight} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-lg ${lightOn ? 'bg-yellow-400 text-black' : 'bg-white/10 text-white border border-white/20'}`}>
-          {lightOn ? "💡" : "🔦"}
-        </button>
+    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden">
+      <div className="w-full max-w-md flex justify-start mt-2 mb-2">
+        <button onClick={resetScanner} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black z-50 shadow-lg hover:bg-red-700">← KEMBALI</button>
       </div>
-
-      {/* Area Kamera */}
-      <div className="relative w-full max-w-md aspect-[3/4] overflow-hidden bg-slate-900 shadow-2xl z-10">
-        <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={videoConstraints} className="absolute inset-0 w-full h-full object-cover" />
-
-        {/* Info Koordinat di Atas Kamera */}
-        <div className="absolute top-20 left-0 w-full flex justify-center z-40">
+      
+      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
+        <Webcam 
+          ref={webcamRef} 
+          audio={false} 
+          screenshotFormat="image/jpeg"
+          videoConstraints={videoConstraints} 
+          className="absolute inset-0 w-full h-full object-cover" 
+        />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" />
+        
+        {/* Real-time GPS Display in Camera */}
+        <div className="absolute top-6 left-0 w-full flex justify-center z-40">
            <div className="bg-black/30 backdrop-blur-md px-4 py-1 rounded-full border border-white/10">
               <p className="text-[9px] text-cyan-400 font-mono tracking-tighter">
                 LAT: {coords?.lat.toFixed(6)} | LNG: {coords?.lng.toFixed(6)}
@@ -231,43 +284,41 @@ export default function HomeAbsensi() {
            </div>
         </div>
 
-        {/* Bingkai Scan Dinamis */}
+        {/* Dynamic Face Frame (Replace static animation) */}
         <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-           <div className={`w-64 h-80 rounded-[60px] border-2 transition-all duration-500 
+           <div className={`w-56 h-72 rounded-[50px] border-2 transition-all duration-500 
              ${scanStatus === 'searching' ? 'border-white/40 border-dashed' : 
-               scanStatus === 'locked' ? 'border-cyan-400 shadow-[0_0_30px_#22d3ee] scale-105' : 
-               'border-green-500 shadow-[0_0_50px_#22c55e] scale-110'}`}>
+               scanStatus === 'locked' ? 'border-cyan-400 shadow-[0_0_25px_#22d3ee] scale-105' : 
+               'border-green-500 shadow-[0_0_40px_#22c55e] scale-110'}`}>
              
-             {/* Animasi Titik-Titik Glow saat Locked */}
+             {/* Glow Pulse Effect when Locked/Success */}
              {scanStatus !== 'searching' && (
-               <div className="absolute inset-0 rounded-[60px] animate-pulse-glow border-4 border-transparent"></div>
+               <div className="absolute inset-0 rounded-[50px] animate-pulse-glow border-4 border-transparent"></div>
              )}
            </div>
         </div>
-
-        {/* Instruksi & Pesan di Bawah */}
-        <div className="absolute bottom-8 w-full px-10 z-40 text-center">
-            <div className={`mb-3 py-1 px-4 inline-block rounded-full text-[10px] font-black uppercase tracking-[3px] 
+        
+        {/* Status Overlay & Instructions */}
+        <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/95 via-black/50 to-transparent p-6 text-center">
+            <div className={`mb-2 py-1 px-4 inline-block rounded-full text-[10px] font-black uppercase 
               ${scanStatus === 'searching' ? 'bg-slate-800 text-slate-400' : 'bg-cyan-500 text-white animate-bounce'}`}>
-              Instruksi: {scanStatus === 'searching' ? 'Hadapkan Wajah' : 'Tahan Posisi'}
+              Instruksi: {scanStatus === 'searching' ? 'Posisikan Wajah' : 'Tahan Posisi'}
             </div>
-            <div className={`${lightOn ? 'bg-white/90 border-slate-200' : 'bg-black/60 border-white/10'} backdrop-blur-xl border rounded-2xl py-4 shadow-2xl`}>
-                <p className={`text-xs font-black uppercase tracking-widest ${scanStatus === 'success' ? 'text-green-500' : (lightOn ? 'text-slate-800' : 'text-white')}`}>
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-4 border border-white/20">
+                <span className={`text-[14px] font-black uppercase italic tracking-wider transition-colors
+                  ${scanStatus === 'success' ? 'text-green-400' : 'text-amber-300'}`}>
                   {pesan}
-                </p>
+                </span>
             </div>
         </div>
       </div>
 
-      {/* Efek Screen Flash */}
-      {lightOn && <div className="absolute inset-0 bg-white shadow-[inset_0_0_150px_rgba(255,255,255,1)] z-0" />}
-
       <style jsx global>{`
         .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
         @keyframes pulse-glow {
-          0% { box-shadow: 0 0 10px rgba(34, 211, 238, 0.4); border-color: rgba(34, 211, 238, 0.2); }
-          50% { box-shadow: 0 0 40px rgba(34, 211, 238, 0.8); border-color: rgba(34, 211, 238, 0.6); }
-          100% { box-shadow: 0 0 10px rgba(34, 211, 238, 0.4); border-color: rgba(34, 211, 238, 0.2); }
+          0% { box-shadow: 0 0 10px rgba(34, 211, 238, 0.4); }
+          50% { box-shadow: 0 0 30px rgba(34, 211, 238, 0.8); }
+          100% { box-shadow: 0 0 10px rgba(34, 211, 238, 0.4); }
         }
         .animate-pulse-glow { animation: pulse-glow 1.5s ease-in-out infinite; }
       `}</style>
