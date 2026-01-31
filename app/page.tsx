@@ -15,14 +15,13 @@ export default function HomeAbsensi() {
   const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const [config, setConfig] = useState<any>(null);
   
-  // Fitur Anti-Double Hit & Face Locking
   const isLocked = useRef(false);
   const scanIntervalRef = useRef<any>(null);
 
   const router = useRouter();
   const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
 
-  // --- 1. INITIAL LOAD (Sistem, AI, & Lokasi) ---
+  // --- 1. INITIAL LOAD ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
@@ -71,7 +70,7 @@ export default function HomeAbsensi() {
     }
   }, []);
 
-  // --- 2. FAST ENGINE SCANNER (With Auto-Stop Locking) ---
+  // --- 2. ENGINE SCANNER ---
   useEffect(() => {
     if (view === "absen" && !isProcessing) {
       isLocked.current = false; 
@@ -107,14 +106,11 @@ export default function HomeAbsensi() {
                   isLocked.current = true; 
                   setIsProcessing(true);
                   clearInterval(scanIntervalRef.current); 
-                  
                   setPesan("Sinkronisasi Biometrik...");
                   handleRecognitionSuccess(match.label);
                 }
               }
-            } else {
-              setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!");
-            }
+            } else { setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!"); }
           } else { setPesan("Mencari Wajah..."); }
         }
       }, 100); 
@@ -122,22 +118,18 @@ export default function HomeAbsensi() {
     return () => clearInterval(scanIntervalRef.current);
   }, [view, faceMatcher, isProcessing]);
 
-  // --- 3. LOGIKA PULANG CEPAT & CEK DATABASE ---
+  // --- 3. LOGIKA PULANG CEPAT ---
   const handleRecognitionSuccess = async (guruId: string) => {
     try {
-      let jumlahAbsen = 0;
-      try {
-        const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
-        const checkData = await checkRes.json();
-        jumlahAbsen = checkData.jumlah_absen || 0;
-      } catch (e) { console.warn("API Cek Status Error"); }
+      // Cek status ke Backend
+      const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
+      const checkData = await checkRes.json();
+      const jumlahAbsen = checkData.jumlah_absen || 0;
 
-      // Ambil jam WITA dengan format yang pasti (HH:mm)
+      // Parsing Waktu WITA
       const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
           timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
       }).format(new Date());
-      
-      // Gunakan regex agar pemisah . atau : tidak masalah
       const [h, m] = jamSekarangWita.split(/[.:]/).map(Number);
       const totalMenitSekarang = h * 60 + m;
 
@@ -150,11 +142,11 @@ export default function HomeAbsensi() {
       const menitPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
       const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
-      // LOGIKA: Jika sudah absen masuk DAN sekarang masih dalam rentang waktu pulang cepat
+      // Validasi: Jika sudah absen masuk dan berada di jam pulang cepat
       if (jumlahAbsen > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
-        const { value: status } = await Swal.fire({
-          title: "KONFIRMASI PULANG",
-          text: "Anda terdeteksi pulang lebih awal. Silakan pilih alasan:",
+        const { value: alasan } = await Swal.fire({
+          title: "PULANG CEPAT",
+          text: "Anda terdeteksi pulang mendahului jadwal. Pilih alasan:",
           icon: "warning",
           input: "select",
           inputOptions: { "Izin": "Izin", "Sakit": "Sakit" },
@@ -164,17 +156,17 @@ export default function HomeAbsensi() {
           cancelButtonText: "Batal",
           allowOutsideClick: false,
           inputValidator: (value) => {
-            if (!value) return 'Anda wajib memilih alasan!';
+            if (!value) return 'Anda harus memilih alasan!';
           }
         });
 
-        if (status) {
-          sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, status);
+        if (alasan) {
+          sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, alasan);
         } else {
           resetScanner();
         }
       } else {
-        // Langsung simpan (Mode Masuk atau Pulang Normal)
+        // Mode Normal (Masuk atau Pulang Tepat Waktu)
         sendToServer(guruId, coords?.lat || 0, coords?.lng || 0);
       }
     } catch (e) {
@@ -189,7 +181,7 @@ export default function HomeAbsensi() {
     setPesan("⚡ Scanner Siap");
   };
 
-  // --- 4. KIRIM DATA & KONFIRMASI DASHBOARD ---
+  // --- 4. KIRIM KE SERVER ---
   const sendToServer = async (guruId: string, lat: number, lng: number, statusTambahan?: string) => {
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
@@ -210,7 +202,7 @@ export default function HomeAbsensi() {
 
         const { isConfirmed } = await Swal.fire({
           title: "Absensi Selesai",
-          text: "Apakah Anda ingin menuju Dashboard Absensi untuk melihat rekap?",
+          text: "Lihat rekap di Dashboard?",
           icon: "question",
           showCancelButton: true,
           confirmButtonText: "Ya, Dashboard",
@@ -235,7 +227,7 @@ export default function HomeAbsensi() {
     }
   };
 
-  // --- UI RENDER ---
+  // --- UI RENDER (Desain Tetap) ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -245,7 +237,7 @@ export default function HomeAbsensi() {
           </div>
           <h2 className="text-lg font-bold text-slate-700 leading-tight uppercase mb-1">{config?.nama_sekolah || "Memuat..."}</h2>
           <p className="text-[10px] text-slate-500 font-medium mb-6 uppercase">TP {config?.tahun_pelajaran} | SEM {config?.semester}</p>
-          <button disabled={!faceMatcher} onClick={() => setView("absen")} className={`w-full py-5 ${!faceMatcher ? 'bg-slate-400' : 'bg-red-600'} text-white rounded-2xl font-black shadow-lg text-lg flex items-center justify-center gap-3`}>
+          <button disabled={!faceMatcher} onClick={() => setView("absen")} className={`w-full py-5 ${!faceMatcher ? 'bg-slate-400' : 'bg-red-600'} text-white rounded-2xl font-black shadow-lg text-lg flex items-center justify-center gap-3 transition-all active:scale-95`}>
             <span className="text-2xl">👤</span> {faceMatcher ? "ABSEN SEKARANG" : "LOADING AI..."}
           </button>
           <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center">🔐 Admin Login</button>
@@ -264,7 +256,7 @@ export default function HomeAbsensi() {
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" />
         <div className={`absolute left-0 w-full h-[4px] bg-cyan-400 shadow-[0_0_25px_#00f2ff] z-20 ${isProcessing ? 'animate-fast-scan' : 'animate-slow-scan'}`}></div>
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/95 p-6">
-            <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-4 text-center">
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-4 text-center border border-white/20">
                 <span className="text-[14px] font-black uppercase italic text-amber-300">{pesan}</span>
             </div>
         </div>
@@ -272,7 +264,7 @@ export default function HomeAbsensi() {
       <style jsx global>{`
         .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
         .animate-slow-scan { animation: scan 3s ease-in-out infinite; }
-        .animate-fast-scan { animation: scan 0.8s linear infinite; background: #fff; }
+        .animate-fast-scan { animation: scan 0.8s linear infinite; background: #fff; box-shadow: 0 0 20px #fff; }
         @keyframes scan { 0% { top: 5% } 50% { top: 95% } 100% { top: 5% } }
       `}</style>
     </div>
