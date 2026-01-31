@@ -22,7 +22,7 @@ export default function HomeAbsensi() {
   const router = useRouter();
   const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
 
-  // --- 1. INITIAL LOAD ---
+  // --- 1. INITIAL LOAD (Sistem & AI) ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
@@ -71,13 +71,12 @@ export default function HomeAbsensi() {
     }
   }, []);
 
-  // --- 2. FAST ENGINE SCANNER WITH AUTO-STOP ---
+  // --- 2. ENGINE SCANNER (Fast Detection) ---
   useEffect(() => {
     if (view === "absen" && !isProcessing) {
-      isLocked.current = false; // Reset lock saat masuk mode absen
+      isLocked.current = false; 
       
       scanIntervalRef.current = setInterval(async () => {
-        // Jika sedang memproses atau terkunci, jangan lakukan apa-apa
         if (isProcessing || isLocked.current) return;
 
         if (webcamRef.current?.video?.readyState === 4 && canvasRef.current) {
@@ -102,15 +101,14 @@ export default function HomeAbsensi() {
               ctx.strokeRect(x, y, width, resized.detection.box.height);
             }
 
-            // Trigger deteksi
             if (width >= 80 && width <= 280) {
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
                 if (match.label !== "unknown") {
-                  // MIKRO-DETIK LOCK: Langsung kunci agar interval berikutnya tidak masuk
+                  // LOCK SEKETIKA
                   isLocked.current = true; 
                   setIsProcessing(true);
-                  clearInterval(scanIntervalRef.current); // Matikan scanner
+                  clearInterval(scanIntervalRef.current); 
                   
                   setPesan("Sinkronisasi...");
                   handleRecognitionSuccess(match.label);
@@ -126,13 +124,22 @@ export default function HomeAbsensi() {
     return () => clearInterval(scanIntervalRef.current);
   }, [view, faceMatcher, isProcessing]);
 
-  // --- 3. LOGIKA VALIDASI (MENCEGAH DOUBLE SIMPAN) ---
+  // --- 3. LOGIKA VALIDASI (Masuk vs Pulang) ---
   const handleRecognitionSuccess = async (guruId: string) => {
     try {
-      // 1. Cek status ke server untuk menentukan Masuk atau Pulang
-      const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
-      const checkData = await checkRes.json();
+      // A. Cek Status Absen Hari Ini ke Backend
+      let jumlahAbsen = 0;
+      try {
+        const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          jumlahAbsen = checkData.jumlah_absen;
+        }
+      } catch (e) {
+        console.warn("API Cek Status Error, Lanjut dengan mode default");
+      }
 
+      // B. Hitung Waktu WITA
       const jamWita = new Intl.DateTimeFormat('id-ID', {
           timeZone: 'Asia/Makassar', hour: 'numeric', minute: 'numeric', hour12: false
       }).format(new Date());
@@ -148,15 +155,16 @@ export default function HomeAbsensi() {
       const jamPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
       const jamPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
-      // LOGIKA: Popup Izin/Sakit hanya muncul jika SUDAH absen masuk
-      if (checkData.jumlah_absen > 0 && totalMenit >= jamPulangCepat && totalMenit < jamPulangNormal) {
+      // C. Tentukan Apakah Perlu Popup Konfirmasi
+      // Popup muncul HANYA JIKA sudah ada data masuk DAN di jam pulang cepat
+      if (jumlahAbsen > 0 && totalMenit >= jamPulangCepat && totalMenit < jamPulangNormal) {
         const { value: status } = await Swal.fire({
           title: "KONFIRMASI PULANG",
-          text: "Pilih alasan pulang cepat:",
+          text: "Anda sudah absen masuk. Pilih alasan pulang cepat:",
           icon: "question",
           input: "select",
           inputOptions: { "Izin": "Izin", "Sakit": "Sakit" },
-          inputPlaceholder: "-- Pilih --",
+          inputPlaceholder: "-- Pilih Alasan --",
           showCancelButton: true,
           confirmButtonText: "Kirim",
           allowOutsideClick: false
@@ -168,7 +176,7 @@ export default function HomeAbsensi() {
           resetScanner();
         }
       } else {
-        // Jika jumlah_absen = 0, otomatis kirim sebagai MASUK
+        // Langsung kirim (Entah itu Masuk pertama kali atau Pulang Normal)
         sendToServer(guruId, coords?.lat || 0, coords?.lng || 0);
       }
     } catch (e) {
@@ -182,7 +190,7 @@ export default function HomeAbsensi() {
     setView("menu");
   };
 
-  // --- 4. FINAL SEND (BACKEND GATEKEEPER) ---
+  // --- 4. KIRIM DATA KE BACKEND ---
   const sendToServer = async (guruId: string, lat: number, lng: number, statusTambahan?: string) => {
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
@@ -206,50 +214,64 @@ export default function HomeAbsensi() {
         resetScanner();
       }
     } catch (e) {
-      Swal.fire("Error", "Koneksi Gagal", "error");
+      Swal.fire("Error", "Koneksi Bermasalah", "error");
       resetScanner();
     }
   };
 
-  // --- UI (TIDAK BERUBAH) ---
+  // --- UI RENDER ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
         <div className="w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
           <div className="w-24 h-24 mx-auto mb-4 flex items-center justify-center overflow-hidden bg-slate-50 rounded-2xl shadow-inner">
-            {config?.logo_sekolah && <img src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`} alt="Logo" className="max-h-full object-contain" />}
+            {config?.logo_sekolah ? (
+                <img src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`} alt="Logo" className="max-h-full object-contain" />
+            ) : (
+                <div className="text-5xl opacity-20">🏫</div>
+            )}
           </div>
           <h2 className="text-lg font-bold text-slate-700 leading-tight uppercase mb-1">{config?.nama_sekolah || "Memuat..."}</h2>
-          <p className="text-[10px] text-slate-500 font-medium mb-6 uppercase">TP {config?.tahun_pelajaran} | SEM {config?.semester}</p>
-          <button disabled={!faceMatcher} onClick={() => setView("absen")} className={`w-full py-5 ${!faceMatcher ? 'bg-slate-400' : 'bg-red-600'} text-white rounded-2xl font-black shadow-lg text-lg flex items-center justify-center gap-3`}>
+          <p className="text-[10px] text-slate-500 font-medium mb-6 uppercase tracking-widest">TP {config?.tahun_pelajaran} | SEM {config?.semester}</p>
+          <button disabled={!faceMatcher} onClick={() => setView("absen")} className={`w-full py-5 ${!faceMatcher ? 'bg-slate-400' : 'bg-red-600 hover:bg-red-700'} text-white rounded-2xl font-black shadow-lg transition-all text-lg flex items-center justify-center gap-3`}>
             <span className="text-2xl">👤</span> {faceMatcher ? "ABSEN SEKARANG" : "LOADING AI..."}
           </button>
-          <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center">🔐 Admin Login</button>
+          <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest hover:text-red-600 transition-all block w-full text-center">🔐 Admin Login</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik">
+    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden">
       <div className="w-full max-w-md flex justify-start mt-2 mb-2">
-        <button onClick={resetScanner} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black z-50">← KEMBALI</button>
+        <button onClick={resetScanner} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black z-50 shadow-lg">← KEMBALI</button>
       </div>
-      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
+      <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl mb-6">
         <Webcam ref={webcamRef} audio={false} videoConstraints={videoConstraints} className="absolute inset-0 w-full h-full object-cover" />
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" />
         <div className={`absolute left-0 w-full h-[4px] bg-cyan-400 shadow-[0_0_25px_#00f2ff] z-20 ${isProcessing ? 'animate-fast-scan' : 'animate-slow-scan'}`}></div>
-        <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/95 p-6">
-            <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-4 text-center">
-                <span className="text-[14px] font-black uppercase italic text-amber-300">{pesan}</span>
+        <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/95 pt-12 pb-6 px-6">
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-4 shadow-2xl text-center">
+                <div className="flex justify-between items-center mb-3 text-white">
+                    <div className="text-left">
+                        <p className="text-[8px] text-cyan-400 font-bold uppercase">Lat</p>
+                        <p className="text-[10px] font-mono font-bold">{coords?.lat.toFixed(4) || "..."}</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-[8px] text-cyan-400 font-bold uppercase">Lng</p>
+                        <p className="text-[10px] font-mono font-bold">{coords?.lng.toFixed(4) || "..."}</p>
+                    </div>
+                </div>
+                <span className="text-[14px] font-black uppercase italic tracking-tighter text-amber-300">{pesan}</span>
             </div>
         </div>
       </div>
       <style jsx global>{`
         .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
         .animate-slow-scan { animation: scan 3s ease-in-out infinite; }
-        .animate-fast-scan { animation: scan 0.8s linear infinite; background: #fff; }
-        @keyframes scan { 0% { top: 5%; } 50% { top: 95%; } 100% { top: 5%; } }
+        .animate-fast-scan { animation: scan 0.8s linear infinite; background: #fff; box-shadow: 0 0 40px #fff; }
+        @keyframes scan { 0% { top: 5% } 50% { top: 95% } 100% { top: 5% } }
       `}</style>
     </div>
   );
