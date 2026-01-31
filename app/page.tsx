@@ -93,18 +93,17 @@ export default function HomeAbsensi() {
 
           if (detection) {
             const resized = faceapi.resizeResults(detection, displaySize);
-            const { width } = resized.detection.box;
+            const { width, x, y, height } = resized.detection.box;
 
             if (ctx) {
               ctx.strokeStyle = "#00f2ff"; ctx.lineWidth = 3;
-              ctx.strokeRect(resized.detection.box.x, resized.detection.box.y, width, resized.detection.box.height);
+              ctx.strokeRect(x, y, width, height);
             }
 
             if (width >= 80 && width <= 280) {
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
                 if (match.label !== "unknown") {
-                  // MENGUNCI SCANNER AGAR TIDAK DOUBLE HIT
                   isLocked.current = true; 
                   setIsProcessing(true);
                   clearInterval(scanIntervalRef.current); 
@@ -131,35 +130,42 @@ export default function HomeAbsensi() {
         const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
         const checkData = await checkRes.json();
         jumlahAbsen = checkData.jumlah_absen || 0;
-      } catch (e) { console.warn("API Cek Status Error, Default ke Masuk"); }
+      } catch (e) { console.warn("API Cek Status Error"); }
 
-      const jamWita = new Intl.DateTimeFormat('id-ID', {
-          timeZone: 'Asia/Makassar', hour: 'numeric', minute: 'numeric', hour12: false
+      // Ambil jam WITA dengan format yang pasti (HH:mm)
+      const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
+          timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
       }).format(new Date());
-      const [h, m] = jamWita.replace('.', ':').split(':').map(Number);
-      const totalMenit = h * 60 + m;
+      
+      // Gunakan regex agar pemisah . atau : tidak masalah
+      const [h, m] = jamSekarangWita.split(/[.:]/).map(Number);
+      const totalMenitSekarang = h * 60 + m;
 
       const parseConfig = (t: string) => {
           if(!t) return 0;
-          const [hh, mm] = t.split(':').map(Number);
+          const [hh, mm] = t.split(/[.:]/).map(Number);
           return hh * 60 + mm;
       }
 
-      const jamPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
-      const jamPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
+      const menitPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
+      const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
-      // Jika sudah pernah masuk dan di jam pulang cepat, tampilkan popup alasan
-      if (jumlahAbsen > 0 && totalMenit >= jamPulangCepat && totalMenit < jamPulangNormal) {
+      // LOGIKA: Jika sudah absen masuk DAN sekarang masih dalam rentang waktu pulang cepat
+      if (jumlahAbsen > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
         const { value: status } = await Swal.fire({
           title: "KONFIRMASI PULANG",
-          text: "Anda terdeteksi pulang lebih awal. Pilih alasan:",
+          text: "Anda terdeteksi pulang lebih awal. Silakan pilih alasan:",
           icon: "warning",
           input: "select",
           inputOptions: { "Izin": "Izin", "Sakit": "Sakit" },
           inputPlaceholder: "-- Pilih Alasan --",
           showCancelButton: true,
           confirmButtonText: "Kirim",
-          allowOutsideClick: false
+          cancelButtonText: "Batal",
+          allowOutsideClick: false,
+          inputValidator: (value) => {
+            if (!value) return 'Anda wajib memilih alasan!';
+          }
         });
 
         if (status) {
@@ -168,7 +174,7 @@ export default function HomeAbsensi() {
           resetScanner();
         }
       } else {
-        // Langsung simpan (Masuk atau Pulang Normal)
+        // Langsung simpan (Mode Masuk atau Pulang Normal)
         sendToServer(guruId, coords?.lat || 0, coords?.lng || 0);
       }
     } catch (e) {
@@ -194,7 +200,6 @@ export default function HomeAbsensi() {
       const data = await res.json();
       
       if (res.ok) {
-        // Tampilkan pesan sukses berjangka pendek
         await Swal.fire({
           title: "BERHASIL",
           text: data.message,
@@ -203,7 +208,6 @@ export default function HomeAbsensi() {
           showConfirmButton: false
         });
 
-        // Tanya apakah mau ke Dashboard
         const { isConfirmed } = await Swal.fire({
           title: "Absensi Selesai",
           text: "Apakah Anda ingin menuju Dashboard Absensi untuk melihat rekap?",
@@ -231,7 +235,7 @@ export default function HomeAbsensi() {
     }
   };
 
-  // --- UI RENDER (MENU & SCANNER) ---
+  // --- UI RENDER ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
