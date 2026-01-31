@@ -13,8 +13,6 @@ export default function HomeAbsensi() {
   const [pesan, setPesan] = useState("Menyiapkan Sistem...");
   const [isProcessing, setIsProcessing] = useState(false);
   const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
-  
-  // State untuk Pengaturan Dinamis dari Backend
   const [config, setConfig] = useState<any>(null);
   
   const router = useRouter();
@@ -24,12 +22,10 @@ export default function HomeAbsensi() {
   useEffect(() => {
     const loadSistem = async () => {
       try {
-        // A. Load Pengaturan Sekolah
         const configRes = await fetch("https://backendabsen.mejatika.com/api/setting-app");
         const configData = await configRes.json();
         if (configData.success) setConfig(configData.data);
 
-        // B. Load Model AI
         const MODEL_URL = "/models";
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
@@ -37,7 +33,6 @@ export default function HomeAbsensi() {
           faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
         ]);
 
-        // C. Load Referensi Wajah Guru
         const res = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
         const gurus = await res.json();
 
@@ -47,6 +42,7 @@ export default function HomeAbsensi() {
             try {
               const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
+              // Optimasi: Gunakan detektor yang lebih cepat untuk registrasi awal
               const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
               return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
             } catch (e) { return null; }
@@ -74,10 +70,11 @@ export default function HomeAbsensi() {
     }
   }, []);
 
-  // --- 2. ENGINE SCANNER + FRAME LOCK ---
+  // --- 2. ENGINE SCANNER (OPTIMIZED SPEED) ---
   useEffect(() => {
     let interval: any;
     if (view === "absen" && !isProcessing) {
+      // Menaikkan frekuensi deteksi (dari 200ms ke 100ms) untuk scan lebih cepat
       interval = setInterval(async () => {
         if (webcamRef.current?.video?.readyState === 4 && canvasRef.current) {
           const video = webcamRef.current.video;
@@ -85,7 +82,8 @@ export default function HomeAbsensi() {
           const displaySize = { width: video.videoWidth, height: video.videoHeight };
           faceapi.matchDimensions(canvas, displaySize);
 
-          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+          // Gunakan inputSize kecil (160) agar proses deteksi sangat cepat
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
             .withFaceLandmarks()
             .withFaceDescriptor();
 
@@ -99,12 +97,10 @@ export default function HomeAbsensi() {
             if (ctx) {
               ctx.strokeStyle = "#00f2ff"; ctx.lineWidth = 3;
               ctx.strokeRect(x, y, width, height);
-              ctx.fillStyle = "#00f2ff";
-              ctx.fillRect(x - 5, y - 5, 20, 5); ctx.fillRect(x - 5, y - 5, 5, 20);
-              ctx.fillRect(x + width - 15, y - 5, 20, 5); ctx.fillRect(x + width, y - 5, 5, 20);
             }
 
-            if (width >= 100 && width <= 250) {
+            // Area deteksi diperluas (80-280) agar guru tidak perlu terlalu presisi maju-mundur
+            if (width >= 80 && width <= 280) {
               setPesan("Fokus Terkunci...");
               if (faceMatcher && !isProcessing) {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
@@ -112,15 +108,16 @@ export default function HomeAbsensi() {
                   setIsProcessing(true);
                   clearInterval(interval);
                   setPesan("Sinkronisasi Biometrik...");
-                  setTimeout(() => handleRecognitionSuccess(match.label), 1200);
+                  // Timeout dikurangi ke 800ms agar terasa instant
+                  setTimeout(() => handleRecognitionSuccess(match.label), 800);
                 }
               }
             } else {
-              setPesan(width < 100 ? "Dekatkan Wajah..." : "Terlalu Dekat!");
+              setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!");
             }
           } else { setPesan("Mencari Wajah..."); }
         }
-      }, 200);
+      }, 100); 
     }
     return () => {
       clearInterval(interval);
@@ -129,53 +126,60 @@ export default function HomeAbsensi() {
     };
   }, [view, faceMatcher, isProcessing]);
 
-  // --- 3. LOGIKA PEMBAGIAN WAKTU (MASUK vs PULANG) ---
+  // --- 3. LOGIKA PEMBAGIAN WAKTU (SINKRON DENGAN DATABASE) ---
   const handleRecognitionSuccess = async (guruId: string) => {
-    // Sinkronisasi Waktu dengan Server (Asia/Makassar)
-    const jamWita = new Intl.DateTimeFormat('id-ID', {
-        timeZone: 'Asia/Makassar',
-        hour: 'numeric',
-        minute: 'numeric',
-        hour12: false
-    }).format(new Date());
+    try {
+      // A. CEK RIWAYAT KE DATABASE TERLEBIH DAHULU
+      // Ganti URL ini dengan endpoint cek status yang Anda buat di Laravel
+      const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
+      const checkData = await checkRes.json();
 
-    const [h, m] = jamWita.replace('.', ':').split(':').map(Number);
-    const totalMenit = h * 60 + m;
+      const jamWita = new Intl.DateTimeFormat('id-ID', {
+          timeZone: 'Asia/Makassar', hour: 'numeric', minute: 'numeric', hour12: false
+      }).format(new Date());
 
-    const parseConfig = (t: string) => {
-        if(!t) return 0;
-        const [hh, mm] = t.split(':').map(Number);
-        return hh * 60 + mm;
-    }
+      const [h, m] = jamWita.replace('.', ':').split(':').map(Number);
+      const totalMenit = h * 60 + m;
 
-    const jamPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
-    const jamPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
-
-    // Jika waktu sekarang berada di antara jam pulang cepat dan jam pulang normal
-    if (totalMenit >= jamPulangCepat && totalMenit < jamPulangNormal) {
-      const { value: status } = await Swal.fire({
-        title: "KONFIRMASI ABSENSI",
-        text: "Pilih jenis absensi Anda:",
-        icon: "question",
-        input: "select",
-        inputOptions: {
-          "Izin": "Izin (Pulang Cepat)",
-          "Sakit": "Sakit (Pulang Cepat)",
-        },
-        inputPlaceholder: "-- Pilih Status --",
-        showCancelButton: true,
-        confirmButtonColor: "#3085d6",
-        confirmButtonText: "Proses",
-        allowOutsideClick: false
-      });
-
-      if (status) {
-        const statusKirim = status === "MASUK" ? undefined : status;
-        sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, statusKirim);
-      } else {
-        setView("menu"); setIsProcessing(false);
+      const parseConfig = (t: string) => {
+          if(!t) return 0;
+          const [hh, mm] = t.split(':').map(Number);
+          return hh * 60 + mm;
       }
-    } else {
+
+      const jamPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
+      const jamPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
+
+      // B. POPUP HANYA MUNCUL JIKA SUDAH PERNAH ABSEN MASUK
+      if (checkData.jumlah_absen > 0 && totalMenit >= jamPulangCepat && totalMenit < jamPulangNormal) {
+        const { value: status } = await Swal.fire({
+          title: "KONFIRMASI PULANG",
+          text: "Pilih alasan Anda pulang lebih awal:",
+          icon: "question",
+          input: "select",
+          inputOptions: {
+            "Izin": "Izin (Pulang Cepat)",
+            "Sakit": "Sakit (Pulang Cepat)",
+          },
+          inputPlaceholder: "-- Pilih Status --",
+          showCancelButton: true,
+          confirmButtonColor: "#3085d6",
+          confirmButtonText: "Kirim Absen",
+          allowOutsideClick: false
+        });
+
+        if (status) {
+          sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, status);
+        } else {
+          setView("menu"); setIsProcessing(false);
+        }
+      } else {
+        // Jika belum ada absen (jumlah_absen = 0) atau sudah jam pulang normal, langsung kirim
+        sendToServer(guruId, coords?.lat || 0, coords?.lng || 0);
+      }
+    } catch (e) {
+      console.error("Check Error:", e);
+      // Fallback: Langsung kirim jika API cek gagal
       sendToServer(guruId, coords?.lat || 0, coords?.lng || 0);
     }
   };
@@ -194,7 +198,7 @@ export default function HomeAbsensi() {
         title: res.ok ? "BERHASIL" : "GAGAL",
         text: data.message,
         icon: res.ok ? "success" : "warning",
-        timer: 3000,
+        timer: 2000,
         showConfirmButton: false
       });
 
@@ -204,12 +208,12 @@ export default function HomeAbsensi() {
         setView("menu"); setIsProcessing(false);
       }
     } catch (e) {
-      Swal.fire("Error", "Koneksi ke server bermasalah", "error");
+      Swal.fire("Error", "Koneksi Bermasalah", "error");
       setView("menu"); setIsProcessing(false);
     }
   };
 
-  // --- UI LAYAR UTAMA (MENU) ---
+  // --- UI MENU & SCANNER (TETAP SAMA DENGAN FITUR LAMA) ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -245,7 +249,6 @@ export default function HomeAbsensi() {
     );
   }
 
-  // --- UI LAYAR SCANNER ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden">
       <div className="w-full max-w-md flex justify-start mt-2 mb-2">
@@ -255,7 +258,6 @@ export default function HomeAbsensi() {
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl mb-6">
         <Webcam ref={webcamRef} audio={false} videoConstraints={videoConstraints} className="absolute inset-0 w-full h-full object-cover" />
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" />
-        
         <div className={`absolute left-0 w-full h-[4px] bg-cyan-400 shadow-[0_0_25px_#00f2ff] z-20 ${isProcessing ? 'animate-fast-scan' : 'animate-slow-scan'}`}></div>
 
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/95 via-black/40 to-transparent pt-12 pb-6 px-6">
