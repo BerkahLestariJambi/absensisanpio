@@ -14,12 +14,12 @@ export default function HomeAbsensi() {
   const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const [config, setConfig] = useState<any>(null);
   const [scanStatus, setScanStatus] = useState<"idle" | "detected" | "processing">("idle");
+  const [lightOn, setLightOn] = useState(false); // State untuk lampu layar
   
   const isLocked = useRef(false);
   const scanIntervalRef = useRef<any>(null);
   const router = useRouter();
 
-  // Rasio 3:4 Portrait
   const videoConstraints = { width: 480, height: 640, facingMode: "user" as const };
 
   useEffect(() => {
@@ -169,6 +169,7 @@ export default function HomeAbsensi() {
     isLocked.current = false;
     setIsProcessing(false);
     setScanStatus("idle");
+    setLightOn(false); // Matikan lampu saat reset
     setView("menu");
   };
 
@@ -179,7 +180,7 @@ export default function HomeAbsensi() {
           <div className="w-20 h-20 mx-auto mb-4 bg-slate-50 rounded-2xl flex items-center justify-center p-2">
             {config?.logo_sekolah && <img src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`} className="max-h-full" alt="logo" />}
           </div>
-          <h2 className="text-md font-black text-slate-700 uppercase">{config?.nama_sekolah || "SISTEM ABSENSI"}</h2>
+          <h2 className="text-md font-black text-slate-700 uppercase tracking-tight">{config?.nama_sekolah || "SISTEM ABSENSI"}</h2>
           <div className="my-6 text-[11px] text-amber-700 font-bold bg-amber-50 py-2 rounded-full border border-amber-100">
             {coords ? "📍 GPS TERKUNCI" : "⌛ MENCARI GPS..."}
           </div>
@@ -192,9 +193,10 @@ export default function HomeAbsensi() {
   }
 
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden">
-      {/* Container Kamera Proporsional 3:4 */}
-      <div className="relative w-full max-w-md aspect-[3/4] overflow-hidden bg-slate-900 shadow-2xl">
+    <div className={`min-h-screen flex flex-col items-center justify-center relative overflow-hidden transition-colors duration-500 ${lightOn ? 'bg-white' : 'bg-black'}`}>
+      
+      {/* Container Kamera 3:4 */}
+      <div className="relative w-full max-w-md aspect-[3/4] overflow-hidden bg-slate-900 shadow-2xl z-10">
         <Webcam
           ref={webcamRef}
           audio={false}
@@ -203,10 +205,10 @@ export default function HomeAbsensi() {
           className="absolute inset-0 w-full h-full object-cover"
         />
 
-        {/* Overlay Animasi Full Color Berdasarkan Status */}
+        {/* Overlay Bingkai Dinamis */}
         <div className={`absolute inset-0 transition-all duration-500 border-[12px] z-20 
-          ${scanStatus === "idle" ? "border-white/20" : 
-            scanStatus === "detected" ? "border-cyan-400/60 shadow-[inset_0_0_50px_rgba(34,211,238,0.4)]" : 
+          ${scanStatus === "idle" ? (lightOn ? "border-slate-200" : "border-white/20") : 
+            scanStatus === "detected" ? "border-cyan-400 shadow-[inset_0_0_50px_rgba(34,211,238,0.4)]" : 
             "border-green-500 shadow-[inset_0_0_100px_rgba(34,197,94,0.6)]"}`} 
         />
 
@@ -216,20 +218,29 @@ export default function HomeAbsensi() {
           animate-scan`} 
         />
 
-        {/* Tombol Kembali */}
-        <button onClick={resetScanner} className="absolute top-6 left-6 z-50 bg-black/50 text-white px-4 py-2 rounded-full text-[10px] font-bold backdrop-blur-md">
-          ← BATAL
-        </button>
+        {/* Controls: Batal & Lampu */}
+        <div className="absolute top-6 w-full px-6 flex justify-between z-50">
+          <button onClick={resetScanner} className="bg-black/60 text-white px-4 py-2 rounded-full text-[10px] font-bold backdrop-blur-md border border-white/10">
+            ← BATAL
+          </button>
+          
+          <button onClick={() => setLightOn(!lightOn)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-lg ${lightOn ? 'bg-yellow-400 text-black scale-110' : 'bg-white/10 text-white border border-white/20 backdrop-blur-md'}`}>
+            <span className="text-lg">{lightOn ? "💡" : "🔦"}</span>
+          </button>
+        </div>
 
-        {/* Label Pesan di Bawah */}
+        {/* Label Pesan */}
         <div className="absolute bottom-10 w-full px-10 z-40">
-          <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl py-3 px-4 text-center">
-            <p className={`text-xs font-black uppercase tracking-widest ${scanStatus === 'idle' ? 'text-white' : 'text-cyan-400 animate-pulse'}`}>
-              {isProcessing ? "Mohon Tunggu..." : pesan}
+          <div className={`${lightOn ? 'bg-white/90 border-slate-200' : 'bg-black/60 border-white/10'} backdrop-blur-md border rounded-2xl py-3 px-4 text-center transition-colors`}>
+            <p className={`text-xs font-black uppercase tracking-widest ${scanStatus === 'idle' ? (lightOn ? 'text-slate-800' : 'text-white') : 'text-cyan-500 animate-pulse'}`}>
+              {isProcessing ? "Sinkronisasi..." : pesan}
             </p>
           </div>
         </div>
       </div>
+
+      {/* Screen Flash Background - Memberikan efek cahaya tambahan di luar box kamera */}
+      {lightOn && <div className="absolute inset-0 bg-white shadow-[inset_0_0_150px_rgba(255,255,255,1)] z-0 animate-pulse" />}
 
       <style jsx global>{`
         .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
@@ -238,9 +249,7 @@ export default function HomeAbsensi() {
           50% { opacity: 1; }
           100% { top: 90%; opacity: 0; }
         }
-        .animate-scan {
-          animation: scan 2s linear infinite;
-        }
+        .animate-scan { animation: scan 2s linear infinite; }
       `}</style>
     </div>
   );
