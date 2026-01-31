@@ -14,7 +14,7 @@ export default function HomeAbsensi() {
   const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const [config, setConfig] = useState<any>(null);
   const [scanStatus, setScanStatus] = useState<"idle" | "detected" | "processing">("idle");
-  const [lightOn, setLightOn] = useState(false); // State untuk lampu layar
+  const [lightOn, setLightOn] = useState(false); 
   
   const isLocked = useRef(false);
   const scanIntervalRef = useRef<any>(null);
@@ -22,6 +22,7 @@ export default function HomeAbsensi() {
 
   const videoConstraints = { width: 480, height: 640, facingMode: "user" as const };
 
+  // --- 1. INITIAL LOAD ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
@@ -45,7 +46,9 @@ export default function HomeAbsensi() {
             try {
               const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
-              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+                .withFaceLandmarks()
+                .withFaceDescriptor();
               return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
             } catch (e) { return null; }
           })
@@ -68,6 +71,7 @@ export default function HomeAbsensi() {
     }
   }, []);
 
+  // --- 2. ENGINE SCANNER (FIXED TYPE ERROR) ---
   useEffect(() => {
     if (view === "absen" && !isProcessing) {
       isLocked.current = false; 
@@ -76,7 +80,10 @@ export default function HomeAbsensi() {
 
         if (webcamRef.current?.video?.readyState === 4) {
           const video = webcamRef.current.video;
+          
+          // Fix: Tambahkan withFaceLandmarks() sebelum withFaceDescriptor()
           const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
+            .withFaceLandmarks()
             .withFaceDescriptor();
 
           if (detection) {
@@ -107,6 +114,25 @@ export default function HomeAbsensi() {
     return () => clearInterval(scanIntervalRef.current);
   }, [view, faceMatcher, isProcessing]);
 
+  // --- 3. LOGIKA FLASH LAMP (HARDWARE TORCH) ---
+  const handleToggleLight = async () => {
+    const nextStatus = !lightOn;
+    setLightOn(nextStatus);
+
+    // Coba akses hardware flash (Android)
+    if (webcamRef.current?.video) {
+      const stream = webcamRef.current.video.srcObject as MediaStream;
+      const track = stream.getVideoTracks()[0];
+      try {
+        const capabilities = track.getCapabilities() as any;
+        if (capabilities.torch) {
+          await track.applyConstraints({ advanced: [{ torch: nextStatus }] } as any);
+        }
+      } catch (e) { /* Torch not supported, fallback to Screen Flash (CSS) */ }
+    }
+  };
+
+  // --- 4. LOGIKA RECOGNITION SUCCESS ---
   const handleRecognitionSuccess = async (guruId: string) => {
     try {
       const screenshot = webcamRef.current?.getScreenshot();
@@ -169,14 +195,15 @@ export default function HomeAbsensi() {
     isLocked.current = false;
     setIsProcessing(false);
     setScanStatus("idle");
-    setLightOn(false); // Matikan lampu saat reset
+    setLightOn(false);
     setView("menu");
   };
 
+  // --- RENDER MENU ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex items-center justify-center p-6 bg-batik">
-        <div className="w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
+        <div className="w-full max-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
           <div className="w-20 h-20 mx-auto mb-4 bg-slate-50 rounded-2xl flex items-center justify-center p-2">
             {config?.logo_sekolah && <img src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`} className="max-h-full" alt="logo" />}
           </div>
@@ -192,10 +219,10 @@ export default function HomeAbsensi() {
     );
   }
 
+  // --- RENDER CAMERA ---
   return (
     <div className={`min-h-screen flex flex-col items-center justify-center relative overflow-hidden transition-colors duration-500 ${lightOn ? 'bg-white' : 'bg-black'}`}>
       
-      {/* Container Kamera 3:4 */}
       <div className="relative w-full max-w-md aspect-[3/4] overflow-hidden bg-slate-900 shadow-2xl z-10">
         <Webcam
           ref={webcamRef}
@@ -205,31 +232,26 @@ export default function HomeAbsensi() {
           className="absolute inset-0 w-full h-full object-cover"
         />
 
-        {/* Overlay Bingkai Dinamis */}
         <div className={`absolute inset-0 transition-all duration-500 border-[12px] z-20 
           ${scanStatus === "idle" ? (lightOn ? "border-slate-200" : "border-white/20") : 
             scanStatus === "detected" ? "border-cyan-400 shadow-[inset_0_0_50px_rgba(34,211,238,0.4)]" : 
             "border-green-500 shadow-[inset_0_0_100px_rgba(34,197,94,0.6)]"}`} 
         />
 
-        {/* Garis Scan Modern */}
         <div className={`absolute left-0 w-full h-[2px] z-30 
           ${scanStatus === "processing" ? "bg-green-400 shadow-[0_0_15px_#4ade80]" : "bg-cyan-400 shadow-[0_0_15px_#22d3ee]"}
           animate-scan`} 
         />
 
-        {/* Controls: Batal & Lampu */}
         <div className="absolute top-6 w-full px-6 flex justify-between z-50">
           <button onClick={resetScanner} className="bg-black/60 text-white px-4 py-2 rounded-full text-[10px] font-bold backdrop-blur-md border border-white/10">
             ← BATAL
           </button>
-          
-          <button onClick={() => setLightOn(!lightOn)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-lg ${lightOn ? 'bg-yellow-400 text-black scale-110' : 'bg-white/10 text-white border border-white/20 backdrop-blur-md'}`}>
+          <button onClick={handleToggleLight} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-lg ${lightOn ? 'bg-yellow-400 text-black scale-110' : 'bg-white/10 text-white border border-white/20 backdrop-blur-md'}`}>
             <span className="text-lg">{lightOn ? "💡" : "🔦"}</span>
           </button>
         </div>
 
-        {/* Label Pesan */}
         <div className="absolute bottom-10 w-full px-10 z-40">
           <div className={`${lightOn ? 'bg-white/90 border-slate-200' : 'bg-black/60 border-white/10'} backdrop-blur-md border rounded-2xl py-3 px-4 text-center transition-colors`}>
             <p className={`text-xs font-black uppercase tracking-widest ${scanStatus === 'idle' ? (lightOn ? 'text-slate-800' : 'text-white') : 'text-cyan-500 animate-pulse'}`}>
@@ -239,7 +261,6 @@ export default function HomeAbsensi() {
         </div>
       </div>
 
-      {/* Screen Flash Background - Memberikan efek cahaya tambahan di luar box kamera */}
       {lightOn && <div className="absolute inset-0 bg-white shadow-[inset_0_0_150px_rgba(255,255,255,1)] z-0 animate-pulse" />}
 
       <style jsx global>{`
