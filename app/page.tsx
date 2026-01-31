@@ -13,8 +13,8 @@ export default function HomeAbsensi() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
   const [config, setConfig] = useState<any>(null);
-  const [scanStatus, setScanStatus] = useState<"idle" | "detected" | "processing">("idle");
-  const [lightOn, setLightOn] = useState(false); 
+  const [scanStatus, setScanStatus] = useState<"searching" | "locked" | "success">("searching");
+  const [lightOn, setLightOn] = useState(false);
   
   const isLocked = useRef(false);
   const scanIntervalRef = useRef<any>(null);
@@ -22,7 +22,6 @@ export default function HomeAbsensi() {
 
   const videoConstraints = { width: 480, height: 640, facingMode: "user" as const };
 
-  // --- 1. INITIAL LOAD ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
@@ -47,8 +46,7 @@ export default function HomeAbsensi() {
               const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
               const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
-                .withFaceLandmarks()
-                .withFaceDescriptor();
+                .withFaceLandmarks().withFaceDescriptor();
               return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
             } catch (e) { return null; }
           })
@@ -71,7 +69,6 @@ export default function HomeAbsensi() {
     }
   }, []);
 
-  // --- 2. ENGINE SCANNER (FIXED TYPE ERROR) ---
   useEffect(() => {
     if (view === "absen" && !isProcessing) {
       isLocked.current = false; 
@@ -80,33 +77,31 @@ export default function HomeAbsensi() {
 
         if (webcamRef.current?.video?.readyState === 4) {
           const video = webcamRef.current.video;
-          
-          // Fix: Tambahkan withFaceLandmarks() sebelum withFaceDescriptor()
           const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
-            .withFaceLandmarks()
-            .withFaceDescriptor();
+            .withFaceLandmarks().withFaceDescriptor();
 
           if (detection) {
             const width = detection.box.width;
-            if (width >= 80 && width <= 280) {
-              setScanStatus("detected");
+            if (width >= 90 && width <= 270) {
+              setScanStatus("locked");
+              setPesan("Wajah Terkunci... Mohon Diam");
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
                 if (match.label !== "unknown") {
                   isLocked.current = true; 
                   setIsProcessing(true);
-                  setScanStatus("processing");
+                  setScanStatus("success");
                   clearInterval(scanIntervalRef.current); 
                   handleRecognitionSuccess(match.label);
                 }
               }
             } else {
-              setScanStatus("idle");
-              setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!");
+              setScanStatus("searching");
+              setPesan(width < 90 ? "Dekatkan Wajah ke Bingkai" : "Terlalu Dekat!");
             }
           } else {
-            setScanStatus("idle");
-            setPesan("Mencari Wajah...");
+            setScanStatus("searching");
+            setPesan("Posisikan Wajah di Tengah");
           }
         }
       }, 200); 
@@ -114,25 +109,19 @@ export default function HomeAbsensi() {
     return () => clearInterval(scanIntervalRef.current);
   }, [view, faceMatcher, isProcessing]);
 
-  // --- 3. LOGIKA FLASH LAMP (HARDWARE TORCH) ---
   const handleToggleLight = async () => {
     const nextStatus = !lightOn;
     setLightOn(nextStatus);
-
-    // Coba akses hardware flash (Android)
     if (webcamRef.current?.video) {
       const stream = webcamRef.current.video.srcObject as MediaStream;
       const track = stream.getVideoTracks()[0];
       try {
-        const capabilities = track.getCapabilities() as any;
-        if (capabilities.torch) {
-          await track.applyConstraints({ advanced: [{ torch: nextStatus }] } as any);
-        }
-      } catch (e) { /* Torch not supported, fallback to Screen Flash (CSS) */ }
+        const caps = track.getCapabilities() as any;
+        if (caps.torch) await track.applyConstraints({ advanced: [{ torch: nextStatus }] } as any);
+      } catch (e) {}
     }
   };
 
-  // --- 4. LOGIKA RECOGNITION SUCCESS ---
   const handleRecognitionSuccess = async (guruId: string) => {
     try {
       const screenshot = webcamRef.current?.getScreenshot();
@@ -194,23 +183,20 @@ export default function HomeAbsensi() {
   const resetScanner = () => {
     isLocked.current = false;
     setIsProcessing(false);
-    setScanStatus("idle");
+    setScanStatus("searching");
     setLightOn(false);
     setView("menu");
   };
 
-  // --- RENDER MENU ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex items-center justify-center p-6 bg-batik">
-        <div className="w-full max-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
-          <div className="w-20 h-20 mx-auto mb-4 bg-slate-50 rounded-2xl flex items-center justify-center p-2">
+        <div className="w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
+          <div className="w-20 h-20 mx-auto mb-4 bg-slate-50 rounded-2xl flex items-center justify-center p-2 border border-slate-100 shadow-inner">
             {config?.logo_sekolah && <img src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`} className="max-h-full" alt="logo" />}
           </div>
           <h2 className="text-md font-black text-slate-700 uppercase tracking-tight">{config?.nama_sekolah || "SISTEM ABSENSI"}</h2>
-          <div className="my-6 text-[11px] text-amber-700 font-bold bg-amber-50 py-2 rounded-full border border-amber-100">
-            {coords ? "📍 GPS TERKUNCI" : "⌛ MENCARI GPS..."}
-          </div>
+          <p className="text-[10px] text-slate-400 font-bold mb-6">TAP KARTU DIGITAL ANDA</p>
           <button disabled={!faceMatcher || !coords} onClick={() => setView("absen")} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black shadow-lg active:scale-95 transition-all">
             MULAI SCAN WAJAH
           </button>
@@ -219,58 +205,71 @@ export default function HomeAbsensi() {
     );
   }
 
-  // --- RENDER CAMERA ---
   return (
     <div className={`min-h-screen flex flex-col items-center justify-center relative overflow-hidden transition-colors duration-500 ${lightOn ? 'bg-white' : 'bg-black'}`}>
       
+      {/* Tombol Batal & Lampu */}
+      <div className="absolute top-6 w-full max-w-md px-6 flex justify-between z-50">
+        <button onClick={resetScanner} className="bg-black/40 text-white px-4 py-2 rounded-full text-[10px] font-black backdrop-blur-xl border border-white/20">
+          ← BATAL
+        </button>
+        <button onClick={handleToggleLight} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-lg ${lightOn ? 'bg-yellow-400 text-black' : 'bg-white/10 text-white border border-white/20'}`}>
+          {lightOn ? "💡" : "🔦"}
+        </button>
+      </div>
+
+      {/* Area Kamera */}
       <div className="relative w-full max-w-md aspect-[3/4] overflow-hidden bg-slate-900 shadow-2xl z-10">
-        <Webcam
-          ref={webcamRef}
-          audio={false}
-          screenshotFormat="image/jpeg"
-          videoConstraints={videoConstraints}
-          className="absolute inset-0 w-full h-full object-cover"
-        />
+        <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={videoConstraints} className="absolute inset-0 w-full h-full object-cover" />
 
-        <div className={`absolute inset-0 transition-all duration-500 border-[12px] z-20 
-          ${scanStatus === "idle" ? (lightOn ? "border-slate-200" : "border-white/20") : 
-            scanStatus === "detected" ? "border-cyan-400 shadow-[inset_0_0_50px_rgba(34,211,238,0.4)]" : 
-            "border-green-500 shadow-[inset_0_0_100px_rgba(34,197,94,0.6)]"}`} 
-        />
-
-        <div className={`absolute left-0 w-full h-[2px] z-30 
-          ${scanStatus === "processing" ? "bg-green-400 shadow-[0_0_15px_#4ade80]" : "bg-cyan-400 shadow-[0_0_15px_#22d3ee]"}
-          animate-scan`} 
-        />
-
-        <div className="absolute top-6 w-full px-6 flex justify-between z-50">
-          <button onClick={resetScanner} className="bg-black/60 text-white px-4 py-2 rounded-full text-[10px] font-bold backdrop-blur-md border border-white/10">
-            ← BATAL
-          </button>
-          <button onClick={handleToggleLight} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-lg ${lightOn ? 'bg-yellow-400 text-black scale-110' : 'bg-white/10 text-white border border-white/20 backdrop-blur-md'}`}>
-            <span className="text-lg">{lightOn ? "💡" : "🔦"}</span>
-          </button>
+        {/* Info Koordinat di Atas Kamera */}
+        <div className="absolute top-20 left-0 w-full flex justify-center z-40">
+           <div className="bg-black/30 backdrop-blur-md px-4 py-1 rounded-full border border-white/10">
+              <p className="text-[9px] text-cyan-400 font-mono tracking-tighter">
+                LAT: {coords?.lat.toFixed(6)} | LNG: {coords?.lng.toFixed(6)}
+              </p>
+           </div>
         </div>
 
-        <div className="absolute bottom-10 w-full px-10 z-40">
-          <div className={`${lightOn ? 'bg-white/90 border-slate-200' : 'bg-black/60 border-white/10'} backdrop-blur-md border rounded-2xl py-3 px-4 text-center transition-colors`}>
-            <p className={`text-xs font-black uppercase tracking-widest ${scanStatus === 'idle' ? (lightOn ? 'text-slate-800' : 'text-white') : 'text-cyan-500 animate-pulse'}`}>
-              {isProcessing ? "Sinkronisasi..." : pesan}
-            </p>
-          </div>
+        {/* Bingkai Scan Dinamis */}
+        <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+           <div className={`w-64 h-80 rounded-[60px] border-2 transition-all duration-500 
+             ${scanStatus === 'searching' ? 'border-white/40 border-dashed' : 
+               scanStatus === 'locked' ? 'border-cyan-400 shadow-[0_0_30px_#22d3ee] scale-105' : 
+               'border-green-500 shadow-[0_0_50px_#22c55e] scale-110'}`}>
+             
+             {/* Animasi Titik-Titik Glow saat Locked */}
+             {scanStatus !== 'searching' && (
+               <div className="absolute inset-0 rounded-[60px] animate-pulse-glow border-4 border-transparent"></div>
+             )}
+           </div>
+        </div>
+
+        {/* Instruksi & Pesan di Bawah */}
+        <div className="absolute bottom-8 w-full px-10 z-40 text-center">
+            <div className={`mb-3 py-1 px-4 inline-block rounded-full text-[10px] font-black uppercase tracking-[3px] 
+              ${scanStatus === 'searching' ? 'bg-slate-800 text-slate-400' : 'bg-cyan-500 text-white animate-bounce'}`}>
+              Instruksi: {scanStatus === 'searching' ? 'Hadapkan Wajah' : 'Tahan Posisi'}
+            </div>
+            <div className={`${lightOn ? 'bg-white/90 border-slate-200' : 'bg-black/60 border-white/10'} backdrop-blur-xl border rounded-2xl py-4 shadow-2xl`}>
+                <p className={`text-xs font-black uppercase tracking-widest ${scanStatus === 'success' ? 'text-green-500' : (lightOn ? 'text-slate-800' : 'text-white')}`}>
+                  {pesan}
+                </p>
+            </div>
         </div>
       </div>
 
-      {lightOn && <div className="absolute inset-0 bg-white shadow-[inset_0_0_150px_rgba(255,255,255,1)] z-0 animate-pulse" />}
+      {/* Efek Screen Flash */}
+      {lightOn && <div className="absolute inset-0 bg-white shadow-[inset_0_0_150px_rgba(255,255,255,1)] z-0" />}
 
       <style jsx global>{`
         .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
-        @keyframes scan {
-          0% { top: 10%; opacity: 0; }
-          50% { opacity: 1; }
-          100% { top: 90%; opacity: 0; }
+        @keyframes pulse-glow {
+          0% { box-shadow: 0 0 10px rgba(34, 211, 238, 0.4); border-color: rgba(34, 211, 238, 0.2); }
+          50% { box-shadow: 0 0 40px rgba(34, 211, 238, 0.8); border-color: rgba(34, 211, 238, 0.6); }
+          100% { box-shadow: 0 0 10px rgba(34, 211, 238, 0.4); border-color: rgba(34, 211, 238, 0.2); }
         }
-        .animate-scan { animation: scan 2s linear infinite; }
+        .animate-pulse-glow { animation: pulse-glow 1.5s ease-in-out infinite; }
       `}</style>
     </div>
   );
