@@ -58,12 +58,19 @@ export default function HomeAbsensi() {
           setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
           if (view === "menu") setPesan("⚡ Scanner Siap");
         }
-      } catch (err) { console.error("Init Error:", err); }
+      } catch (err) { 
+        console.error("Init Error:", err);
+        setPesan("Gagal memuat sistem");
+      }
     };
     loadSistem();
 
     if ("geolocation" in navigator) {
-      navigator.geolocation.watchPosition((pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }), null, { enableHighAccuracy: true });
+      navigator.geolocation.watchPosition(
+        (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        null, 
+        { enableHighAccuracy: true }
+      );
     }
   }, []);
 
@@ -124,40 +131,51 @@ export default function HomeAbsensi() {
 
   // --- 3. LOGIKA PEMBAGIAN WAKTU (MASUK vs PULANG) ---
   const handleRecognitionSuccess = async (guruId: string) => {
-    const sekarang = new Date();
-    const totalMenit = sekarang.getHours() * 60 + sekarang.getMinutes();
+    // Sinkronisasi Waktu dengan Server (Asia/Makassar)
+    const jamWita = new Intl.DateTimeFormat('id-ID', {
+        timeZone: 'Asia/Makassar',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false
+    }).format(new Date());
 
-    // Ambil jam dari config atau default jika config belum load
-    const jamPulangCepat = config?.jam_pulang_cepat_mulai ? parseInt(config.jam_pulang_cepat_mulai.split(':')[0]) * 60 + parseInt(config.jam_pulang_cepat_mulai.split(':')[1]) : 435;
-    const jamPulangNormal = config?.jam_pulang_normal ? parseInt(config.jam_pulang_normal.split(':')[0]) * 60 + parseInt(config.jam_pulang_normal.split(':')[1]) : 765;
+    const [h, m] = jamWita.replace('.', ':').split(':').map(Number);
+    const totalMenit = h * 60 + m;
 
-    // Jika di jam Pulang Cepat (Misal 07:15 - 12:44)
+    const parseConfig = (t: string) => {
+        if(!t) return 0;
+        const [hh, mm] = t.split(':').map(Number);
+        return hh * 60 + mm;
+    }
+
+    const jamPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
+    const jamPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
+
+    // Jika waktu sekarang berada di antara jam pulang cepat dan jam pulang normal
     if (totalMenit >= jamPulangCepat && totalMenit < jamPulangNormal) {
       const { value: status } = await Swal.fire({
         title: "KONFIRMASI ABSENSI",
-        text: "Pilih jenis absensi Anda saat ini:",
+        text: "Pilih jenis absensi Anda:",
         icon: "question",
         input: "select",
         inputOptions: {
-          "MASUK": "Absen Masuk (Terlambat)",
           "Izin": "Izin (Pulang Cepat)",
           "Sakit": "Sakit (Pulang Cepat)",
         },
         inputPlaceholder: "-- Pilih Status --",
         showCancelButton: true,
         confirmButtonColor: "#3085d6",
+        confirmButtonText: "Proses",
         allowOutsideClick: false
       });
 
       if (status) {
-        // Jika pilih MASUK, kirim status_tambahan undefined agar backend memproses sebagai Masuk
         const statusKirim = status === "MASUK" ? undefined : status;
         sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, statusKirim);
       } else {
         setView("menu"); setIsProcessing(false);
       }
     } else {
-      // Diluar jam tersebut (Masuk Normal atau Pulang Normal), langsung kirim
       sendToServer(guruId, coords?.lat || 0, coords?.lng || 0);
     }
   };
@@ -176,7 +194,7 @@ export default function HomeAbsensi() {
         title: res.ok ? "BERHASIL" : "GAGAL",
         text: data.message,
         icon: res.ok ? "success" : "warning",
-        timer: 2000,
+        timer: 3000,
         showConfirmButton: false
       });
 
@@ -186,7 +204,7 @@ export default function HomeAbsensi() {
         setView("menu"); setIsProcessing(false);
       }
     } catch (e) {
-      Swal.fire("Error", "Koneksi Bermasalah", "error");
+      Swal.fire("Error", "Koneksi ke server bermasalah", "error");
       setView("menu"); setIsProcessing(false);
     }
   };
@@ -196,12 +214,11 @@ export default function HomeAbsensi() {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
         <div className="w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
-          {/* Logo Sekolah Dinamis */}
-          <div className="w-24 h-24 mx-auto mb-4 flex items-center justify-center overflow-hidden">
+          <div className="w-24 h-24 mx-auto mb-4 flex items-center justify-center overflow-hidden bg-slate-50 rounded-2xl shadow-inner">
             {config?.logo_sekolah ? (
                 <img src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`} alt="Logo" className="max-h-full object-contain" />
             ) : (
-                <div className="text-5xl">👤</div>
+                <div className="text-5xl opacity-20">👤</div>
             )}
           </div>
           
@@ -209,11 +226,15 @@ export default function HomeAbsensi() {
             {config?.nama_sekolah || "Memuat..."}
           </h2>
           <p className="text-[10px] text-slate-500 font-medium mb-6 uppercase tracking-widest">
-            {config?.tahun_pelajaran || "..."} | SEMESTER {config?.semester || "..."}
+            TP {config?.tahun_pelajaran || "-"} | SEMESTER {config?.semester || "-"}
           </p>
 
-          <button onClick={() => setView("absen")} className="w-full py-5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black shadow-lg transition-all text-lg flex items-center justify-center gap-3">
-            <span className="text-2xl">👤</span> ABSEN SEKARANG
+          <button 
+            disabled={!faceMatcher}
+            onClick={() => setView("absen")} 
+            className={`w-full py-5 ${!faceMatcher ? 'bg-slate-400' : 'bg-red-600 hover:bg-red-700'} text-white rounded-2xl font-black shadow-lg transition-all text-lg flex items-center justify-center gap-3`}
+          >
+            <span className="text-2xl">👤</span> {faceMatcher ? "ABSEN SEKARANG" : "LOADING AI..."}
           </button>
           
           <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest hover:text-red-600 transition-all block w-full text-center">
@@ -242,11 +263,11 @@ export default function HomeAbsensi() {
                 <div className="flex justify-between items-center mb-3 text-white">
                     <div className="text-left">
                         <p className="text-[8px] text-cyan-400 font-bold uppercase">Latitude</p>
-                        <p className="text-[10px] font-mono font-bold">{coords?.lat.toFixed(6) || "Mencari..."}</p>
+                        <p className="text-[10px] font-mono font-bold">{coords?.lat.toFixed(6) || "..."}</p>
                     </div>
                     <div className="text-right">
                         <p className="text-[8px] text-cyan-400 font-bold uppercase">Longitude</p>
-                        <p className="text-[10px] font-mono font-bold">{coords?.lng.toFixed(6) || "Mencari..."}</p>
+                        <p className="text-[10px] font-mono font-bold">{coords?.lng.toFixed(6) || "..."}</p>
                     </div>
                 </div>
                 <span className="text-[14px] font-black uppercase italic tracking-tighter text-amber-300">{pesan}</span>
