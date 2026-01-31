@@ -9,7 +9,6 @@ export default function AdminDashboard() {
   const [gurus, setGurus] = useState([]);
   const [izins, setIzins] = useState([]);
   const [rekap, setRekap] = useState([]);
-  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -124,70 +123,119 @@ export default function AdminDashboard() {
       {/* CONTENT AREA */}
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
         
-        {/* TAB PEGAWAI (CRUD) */}
+        {/* TAB PEGAWAI */}
         {activeTab === "guru" && (
           <div className="space-y-4">
-             <div className="flex justify-between items-end">
-                <h2 className="text-sm font-black text-slate-700 uppercase tracking-widest ml-2">Manajemen Data Pegawai</h2>
-                <button onClick={() => router.push("/admin/pegawai/tambah")} className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black hover:scale-105 transition shadow-lg">+ TAMBAH GURU</button>
-             </div>
-             {/* ... (Gunakan kode tabel guru Anda yang sebelumnya di sini) ... */}
+              <div className="flex justify-between items-end">
+                 <h2 className="text-sm font-black text-slate-700 uppercase tracking-widest ml-2">Manajemen Data Pegawai</h2>
+                 <button onClick={() => router.push("/admin/pegawai/tambah")} className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black hover:scale-105 transition shadow-lg">+ TAMBAH GURU</button>
+              </div>
+              <div className="bg-white rounded-[32px] shadow-sm border border-slate-100 overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 text-slate-400 uppercase text-[9px] font-black tracking-widest">
+                    <tr>
+                      <th className="p-6">Informasi Pegawai</th>
+                      <th className="p-6">NIP/NUPTK</th>
+                      <th className="p-6 text-center">Status</th>
+                      <th className="p-6 text-center">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {gurus.map((g: any) => (
+                      <tr key={g.id} className="hover:bg-slate-50 transition">
+                        <td className="p-6">
+                          <div className="font-black text-slate-800 uppercase text-xs">{g.nama_lengkap}</div>
+                          <div className="text-[9px] font-bold text-red-600 uppercase italic">{g.jenjang}</div>
+                        </td>
+                        <td className="p-6 text-xs font-bold text-slate-500">{g.nip || '-'} / {g.nuptk || '-'}</td>
+                        <td className="p-6 text-center">
+                          <span className="bg-green-100 text-green-600 px-3 py-1 rounded-full text-[9px] font-black uppercase">Aktif</span>
+                        </td>
+                        <td className="p-6 text-center">
+                          <button onClick={() => router.push(`/admin/pegawai/edit/${g.id}`)} className="text-slate-400 hover:text-red-600 transition p-2">✏️</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
           </div>
         )}
 
-        {/* TAB REKAP KEHADIRAN */}
+        {/* TAB REKAP KEHADIRAN (SUDAH DIPERBAIKI) */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
             <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">Log Absensi Real-time</h3>
-                <span className="bg-red-100 text-red-600 text-[9px] font-black px-3 py-1 rounded-full uppercase italic">Waktu Server: WITA</span>
+                <div>
+                  <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">Log Absensi Pegawai</h3>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Status Real-time & Geofencing</p>
+                </div>
+                <span className="bg-red-100 text-red-600 text-[9px] font-black px-3 py-1 rounded-full uppercase italic">Zona Waktu: WITA</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-white text-slate-400 uppercase text-[9px] font-black tracking-widest border-b">
                   <tr>
                     <th className="p-6 text-center w-20">Foto</th>
-                    <th className="p-6">Informasi Guru</th>
-                    <th className="p-6 text-center">Waktu Absen</th>
+                    <th className="p-6 text-left">Nama Pegawai</th>
+                    <th className="p-6 text-center">Jam Scan</th>
                     <th className="p-6 text-center">Status</th>
-                    <th className="p-6 text-center">Aksi</th>
+                    <th className="p-6 text-left">Keterangan Lokasi</th>
+                    <th className="p-6 text-center">Peta</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {rekap.length > 0 ? rekap.map((r: any) => (
                     <tr key={r.id} className="hover:bg-slate-50/80 transition">
-                      <td className="p-4">
-                        <img 
-                          src={`https://backendabsen.mejatika.com/storage/${r.foto_wajah}`} 
-                          className="w-12 h-12 object-cover rounded-2xl border-2 border-white shadow-md mx-auto hover:scale-150 transition" 
-                          alt="Face" 
-                        />
+                      <td className="p-4 text-center">
+                        <div className="relative inline-block group">
+                          <img 
+                            src={r.foto_wajah ? `https://backendabsen.mejatika.com/storage/${r.foto_wajah}` : '/no-avatar.png'} 
+                            className="w-12 h-12 object-cover rounded-2xl border-2 border-white shadow-md transition-all duration-300 group-hover:scale-[2.5] group-hover:z-50 relative" 
+                            alt="Scan" 
+                          />
+                        </div>
                       </td>
                       <td className="p-6">
                         <div className="font-black text-slate-800 uppercase text-xs">{r.nama_lengkap}</div>
-                        <div className="text-[9px] font-bold text-slate-400 uppercase italic">{r.jenjang}</div>
+                        <div className="text-[9px] font-bold text-slate-400 uppercase italic">{r.nip || 'Tanpa NIP'}</div>
                       </td>
                       <td className="p-6 text-center">
-                        <div className="font-bold text-slate-700 text-xs">{new Date(r.created_at).toLocaleDateString('id-ID', {day:'2-digit', month:'short'})}</div>
-                        <div className="text-red-600 font-black text-xs tracking-tighter">{new Date(r.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                        <div className="font-bold text-slate-700 text-xs">
+                           {new Date(r.waktu_absen).toLocaleDateString('id-ID', {day:'2-digit', month:'short'})}
+                        </div>
+                        <div className="text-red-600 font-black text-sm tracking-tighter">
+                           {new Date(r.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
+                        </div>
                       </td>
                       <td className="p-6 text-center">
-                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase ${r.status_absen === 'Cepat' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
-                           {r.status_absen || 'Normal'}
+                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase inline-block min-w-[120px] ${
+                          r.status.includes('Terlambat') || r.status.includes('Luar') 
+                            ? 'bg-red-50 text-red-600 border border-red-100' 
+                            : r.status.includes('Pulang') 
+                            ? 'bg-blue-50 text-blue-600 border border-blue-100'
+                            : 'bg-green-50 text-green-600 border border-green-100'
+                        }`}>
+                           {r.status}
                         </span>
+                      </td>
+                      <td className="p-6">
+                        <div className={`text-[10px] font-bold uppercase leading-relaxed ${r.keterangan_lokasi.includes('luar') ? 'text-red-500' : 'text-slate-400'}`}>
+                          {r.keterangan_lokasi}
+                        </div>
                       </td>
                       <td className="p-6 text-center">
                         <a 
                           href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} 
                           target="_blank" 
-                          className="inline-block p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition shadow-sm"
+                          className="inline-flex items-center justify-center w-9 h-9 bg-slate-100 text-slate-600 rounded-xl hover:bg-red-600 hover:text-white transition shadow-sm"
                         >
                           📍
                         </a>
                       </td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={5} className="p-10 text-center font-bold text-slate-300">Belum ada data absensi hari ini</td></tr>
+                    <tr><td colSpan={6} className="p-20 text-center font-black text-slate-300 uppercase tracking-widest text-xs">Data absensi belum tersedia</td></tr>
                   )}
                 </tbody>
               </table>
@@ -212,7 +260,7 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {izins.map((i: any) => (
+                  {izins.length > 0 ? izins.map((i: any) => (
                     <tr key={i.id} className="hover:bg-slate-50/80 transition">
                       <td className="p-6">
                         <div className="font-black text-slate-800 uppercase text-xs">{i.nama_lengkap}</div>
@@ -242,20 +290,22 @@ export default function AdminDashboard() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  )) : (
+                    <tr><td colSpan={4} className="p-10 text-center font-bold text-slate-300 uppercase text-xs">Tidak ada antrian izin</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         )}
 
-        {/* TAB SETTING (INTEGRASI) */}
+        {/* TAB SETTING */}
         {activeTab === "setting" && (
            <div className="bg-white p-12 rounded-[40px] shadow-xl border border-slate-100 text-center space-y-6 animate-in zoom-in-95 duration-300">
               <div className="w-24 h-24 bg-red-50 text-red-600 rounded-[30px] flex items-center justify-center text-4xl mx-auto shadow-inner rotate-3">⚙️</div>
               <div>
                 <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Konfigurasi Aplikasi</h2>
-                <p className="text-slate-400 text-xs font-medium max-w-sm mx-auto mt-2 italic">Kelola lokasi sekolah (Geofencing), nama instansi, tahun ajaran, dan jam operasional absensi.</p>
+                <p className="text-slate-400 text-xs font-medium max-w-sm mx-auto mt-2 italic">Atur jam operasional, koordinat sekolah, dan semester aktif.</p>
               </div>
               <button 
                 onClick={() => router.push('/admin/setting')}
