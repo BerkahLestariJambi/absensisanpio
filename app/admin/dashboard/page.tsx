@@ -17,10 +17,13 @@ export default function AdminDashboard() {
   const [userRole, setUserRole] = useState(null);
   const [userName, setUserName] = useState(null);
 
+  // State baru untuk notifikasi
+  const [pendingCount, setPendingCount] = useState(0);
+
   const API_URL = "https://backendabsen.mejatika.com/api";
 
   // --- LOGIKA FILTERING & BADGE ---
-  const getPendingCount = (jenis) => {
+  const getPendingCountLocal = (jenis) => {
     if (jenis === "Semua") return izins.filter((i) => i.status === "Pending").length;
     return izins.filter((i) => i.jenis === jenis && i.status === "Pending").length;
   };
@@ -28,6 +31,23 @@ export default function AdminDashboard() {
   const filteredIzins = subTabIzin === "Semua" 
     ? izins 
     : izins.filter((i) => i.jenis === subTabIzin);
+
+  // --- FETCH STATS (NOTIFIKASI) ---
+  const fetchStats = async () => {
+    const token = localStorage.getItem("auth_token");
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/admin/pengajuan/stats`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPendingCount(data.pending_count);
+      }
+    } catch (err) {
+      console.error("Gagal ambil notifikasi");
+    }
+  };
 
   // --- LOAD DATA ---
   const loadData = async () => {
@@ -77,6 +97,10 @@ export default function AdminDashboard() {
         setSchoolName(dataSetting.data.nama_sekolah || "SANPIO");
         setSchoolLogo(dataSetting.data.logo_sekolah || null);
       }
+
+      // Update notifikasi count juga setiap reload data
+      fetchStats();
+
     } catch (err) {
       console.error("Gagal sinkronisasi data.");
     } finally {
@@ -93,6 +117,10 @@ export default function AdminDashboard() {
       setUserRole(role);
       setUserName(name);
       loadData();
+
+      // Polling notifikasi setiap 60 detik
+      const interval = setInterval(fetchStats, 60000);
+      return () => clearInterval(interval);
     }
   }, []);
 
@@ -182,15 +210,20 @@ export default function AdminDashboard() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`py-2.5 px-6 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all flex items-center gap-2 ${
+            className={`relative py-2.5 px-6 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all flex items-center gap-2 ${
               activeTab === tab.id ? "bg-red-600 text-white shadow-xl shadow-red-200" : "text-slate-400 hover:bg-slate-50"
             }`}
           >
             <span>{tab.icon}</span> {tab.label}
-            {tab.id === "izin" && getPendingCount("Semua") > 0 && (
-                <span className="bg-white text-red-600 px-1.5 py-0.5 rounded-md text-[8px] animate-pulse">
-                    {getPendingCount("Semua")}
+            
+            {/* NOTIFIKASI BADGE DENGAN ANIMASI PING */}
+            {tab.id === "izin" && pendingCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-white text-red-600 text-[8px] font-black items-center justify-center border border-red-100">
+                  {pendingCount}
                 </span>
+              </span>
             )}
           </button>
         ))}
@@ -247,7 +280,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB KEHADIRAN (REKAP 1 BARIS) */}
+        {/* TAB KEHADIRAN */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
             <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
@@ -313,7 +346,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB IZIN & SAKIT (DENGAN TANGGAL MULAI/SELESAI) */}
+        {/* TAB IZIN & SAKIT */}
         {activeTab === "izin" && (
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2 mb-2">
@@ -326,8 +359,8 @@ export default function AdminDashboard() {
                   }`}
                 >
                   {type}
-                  {getPendingCount(type) > 0 && (
-                    <span className="absolute -top-2 -right-2 bg-red-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-[9px] animate-bounce border-2 border-white">{getPendingCount(type)}</span>
+                  {getPendingCountLocal(type) > 0 && (
+                    <span className="absolute -top-2 -right-2 bg-red-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-[9px] animate-bounce border-2 border-white">{getPendingCountLocal(type)}</span>
                   )}
                 </button>
               ))}
@@ -355,13 +388,14 @@ export default function AdminDashboard() {
                         <td className="p-6 text-xs">
                           <span className={`font-black px-2 py-0.5 rounded uppercase mb-1 inline-block ${i.jenis === 'Sakit' ? 'bg-amber-100 text-amber-600' : i.jenis === 'Tugas Luar' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>{i.jenis}</span>
                           
-                          {/* LOGIKA TANGGAL MULAI - SELESAI */}
                           <div className="flex flex-col gap-1 mt-1">
                              <div className="text-slate-800 font-black text-[10px] uppercase">
                                 📅 {i.tanggal_mulai ? (
                                   <>
                                     {new Date(i.tanggal_mulai).toLocaleDateString('id-ID', {day:'2-digit', month:'short'})} 
+                                    {/* HANYA TAMPILKAN SELESAI JIKA TIDAK NULL */}
                                     {i.tanggal_selesai && ` s/d ${new Date(i.tanggal_selesai).toLocaleDateString('id-ID', {day:'2-digit', month:'short'})}`}
+                                    {i.jenis === "Sakit" && !i.tanggal_selesai && <span className="ml-1 text-red-500 font-bold">(Hingga Sembuh)</span>}
                                   </>
                                 ) : (
                                   <span className="text-slate-400 italic">Tanggal tidak terdata</span>
