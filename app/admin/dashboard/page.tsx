@@ -382,7 +382,7 @@ export default function AdminDashboard() {
                     {filteredIzins.map((i) => (
                       <tr key={i.id} className="hover:bg-slate-50/80 transition">
                         <td className="p-6">
-                          <div className="font-black text-slate-800 uppercase text-xs">{i.nama_lengkap}</div>
+                          <div className="font-black text-slate-800 uppercase text-xs">{i.guru?.nama_lengkap}</div>
                           <div className="text-[9px] text-slate-400 font-bold italic">Request: {new Date(i.created_at).toLocaleDateString()}</div>
                         </td>
                         <td className="p-6 text-xs">
