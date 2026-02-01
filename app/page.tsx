@@ -272,7 +272,7 @@ export default function HomeAbsensi() {
           </button>
           
           {/* TOMBOL LOGIN TETAP ADA & BERFUNGSI */}
-          <button onClick={() => router.push("/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors">🔐 LOGIN SISTEM</button>
+          <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors">🔐 LOGIN SISTEM</button>
         </div>
       </div>
     );
