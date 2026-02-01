@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
-
 export default function GuruDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("home");
