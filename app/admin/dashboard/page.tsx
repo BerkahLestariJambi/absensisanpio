@@ -12,7 +12,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   
   // State untuk Data Sekolah & User
-  const [schoolName, setSchoolName] = useState("SANPIO");
+  const [schoolName, setSchoolName] = useState("Memuat...");
+  const [schoolLogo, setSchoolLogo] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
 
@@ -33,7 +34,7 @@ export default function AdminDashboard() {
         fetch(`${API_URL}/admin/guru`, { headers }),
         fetch(`${API_URL}/admin/daftar-izin`, { headers }),
         fetch(`${API_URL}/admin/rekap-absensi`, { headers }),
-        fetch(`${API_URL}/setting-app`) // Mengambil setting umum sekolah
+        fetch(`${API_URL}/setting-app`) 
       ]);
       
       const dataGuru = await resGuru.json();
@@ -45,9 +46,11 @@ export default function AdminDashboard() {
       setIzins(Array.isArray(dataIzin) ? dataIzin : dataIzin.data || []);
       setRekap(Array.isArray(dataRekap) ? dataRekap : dataRekap.data || []);
       
-      // Update nama sekolah jika tersedia di database
-      if (dataSetting && dataSetting.nama_sekolah) {
-        setSchoolName(dataSetting.nama_sekolah);
+      // Sinkronisasi Nama & Logo Sekolah dari Key-Value Backend
+      if (dataSetting.success && dataSetting.data) {
+        const s = dataSetting.data;
+        setSchoolName(s.nama_sekolah || "SANPIO");
+        setSchoolLogo(s.logo_sekolah || null);
       }
     } catch (err) {
       console.error("Gagal sinkronisasi data.");
@@ -73,6 +76,35 @@ export default function AdminDashboard() {
     router.push("/admin/login");
   };
 
+  // FITUR IMPORT EXCEL
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    Swal.fire({ title: "Mengunggah...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+    try {
+      const res = await fetch(`${API_URL}/admin/guru/import`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${localStorage.getItem("auth_token")}` },
+        body: formData
+      });
+
+      const result = await res.json();
+      if (res.ok) {
+        Swal.fire("Berhasil", "Data pegawai berhasil diimport!", "success");
+        loadData();
+      } else {
+        Swal.fire("Gagal", result.message || "Format file salah", "error");
+      }
+    } catch (err) {
+      Swal.fire("Error", "Gagal menghubungi server", "error");
+    }
+  };
+
   const updateStatusIzin = async (id: number, status: string) => {
     try {
       const res = await fetch(`${API_URL}/admin/izin/${id}/status`, {
@@ -96,11 +128,21 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans bg-batik">
       {/* HEADER SECTION */}
       <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[30px] shadow-sm border border-slate-100">
-        <div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase">
-            <span className="text-red-600">{schoolName}</span> {userRole?.replace("_", " ")}
-          </h1>
-          <p className="text-slate-400 font-bold text-[10px] tracking-[0.2em] uppercase">Petugas: {userName}</p>
+        <div className="flex items-center gap-4">
+          {/* Logo Sekolah Dinamis */}
+          <div className="w-14 h-14 bg-slate-50 rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-inner">
+            {schoolLogo ? (
+              <img src={`https://backendabsen.mejatika.com/storage/${schoolLogo}`} className="w-full h-full object-contain" alt="Logo" />
+            ) : (
+              <span className="text-2xl">🏫</span>
+            )}
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase">
+              <span className="text-red-600">{schoolName}</span> {userRole?.replace("_", " ")}
+            </h1>
+            <p className="text-slate-400 font-bold text-[10px] tracking-[0.2em] uppercase">Petugas: {userName}</p>
+          </div>
         </div>
         <div className="flex gap-2">
           <button onClick={() => window.open('/', '_blank')} className="bg-amber-50 text-amber-600 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-amber-100 transition uppercase border border-amber-100">🖥️ Buka Mesin</button>
@@ -132,13 +174,23 @@ export default function AdminDashboard() {
       {/* CONTENT AREA */}
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
         
-        {/* TAB PEGAWAI */}
         {activeTab === "guru" && (
           <div className="space-y-4">
-              <div className="flex justify-between items-end">
-                 <h2 className="text-sm font-black text-slate-700 uppercase tracking-widest ml-2">Manajemen Data Pegawai</h2>
-                 <button onClick={() => router.push("/admin/pegawai/tambah")} className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black hover:scale-105 transition shadow-lg">+ TAMBAH GURU</button>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+                 <div>
+                    <h2 className="text-sm font-black text-slate-700 uppercase tracking-widest ml-2">Manajemen Data Pegawai</h2>
+                    <p className="text-[10px] text-slate-400 ml-2 font-bold italic">Total: {gurus.length} Orang</p>
+                 </div>
+                 <div className="flex gap-2 w-full md:w-auto">
+                    {/* INPUT FILE HIDDEN UNTUK IMPORT EXCEL */}
+                    <label className="cursor-pointer bg-green-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black hover:bg-green-700 transition shadow-lg flex items-center gap-2">
+                      📥 IMPORT EXCEL
+                      <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleImportExcel} />
+                    </label>
+                    <button onClick={() => router.push("/admin/pegawai/tambah")} className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black hover:scale-105 transition shadow-lg flex items-center gap-2">+ TAMBAH GURU</button>
+                 </div>
               </div>
+              
               <div className="bg-white rounded-[32px] shadow-sm border border-slate-100 overflow-hidden">
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-slate-50 text-slate-400 uppercase text-[9px] font-black tracking-widest">
@@ -161,7 +213,7 @@ export default function AdminDashboard() {
                           <span className="bg-green-100 text-green-600 px-3 py-1 rounded-full text-[9px] font-black uppercase">Aktif</span>
                         </td>
                         <td className="p-6 text-center">
-                          <button onClick={() => router.push(`/admin/pegawai/edit/${g.id}`)} className="text-slate-400 hover:text-red-600 transition p-2">✏️</button>
+                          <button onClick={() => router.push(`/admin/pegawai/edit/${g.id}`)} className="bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-600 transition p-2 rounded-lg">✏️ Edit</button>
                         </td>
                       </tr>
                     ))}
@@ -314,7 +366,7 @@ export default function AdminDashboard() {
               <div className="w-24 h-24 bg-red-50 text-red-600 rounded-[30px] flex items-center justify-center text-4xl mx-auto shadow-inner rotate-3">⚙️</div>
               <div>
                 <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Konfigurasi Aplikasi</h2>
-                <p className="text-slate-400 text-xs font-medium max-w-sm mx-auto mt-2 italic">Atur jam operasional, koordinat sekolah, dan semester aktif.</p>
+                <p className="text-slate-400 text-xs font-medium max-w-sm mx-auto mt-2 italic">Atur jam operasional, koordinat sekolah, dan logo sekolah.</p>
               </div>
               <button 
                 onClick={() => router.push('/admin/setting')}
