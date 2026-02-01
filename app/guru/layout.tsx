@@ -1,4 +1,5 @@
 // app/guru/layout.tsx
+"use client";
 export default function GuruLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans bg-batik">
