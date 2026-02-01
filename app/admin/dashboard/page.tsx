@@ -11,7 +11,6 @@ export default function AdminDashboard() {
   const [rekap, setRekap] = useState([]);
   const [loading, setLoading] = useState(false);
   
-  // State untuk Data Sekolah & User
   const [schoolName, setSchoolName] = useState("Memuat...");
   const [schoolLogo, setSchoolLogo] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -44,7 +43,32 @@ export default function AdminDashboard() {
 
       setGurus(Array.isArray(dataGuru) ? dataGuru : dataGuru.data || []);
       setIzins(Array.isArray(dataIzin) ? dataIzin : dataIzin.data || []);
-      setRekap(Array.isArray(dataRekap) ? dataRekap : dataRekap.data || []);
+      
+      // LOGIKA GROUPING DATA REKAP (1 Baris per Guru per Hari)
+      const rawRekap = Array.isArray(dataRekap) ? dataRekap : dataRekap.data || [];
+      const grouped = rawRekap.reduce((acc: any, curr: any) => {
+        const dateKey = new Date(curr.waktu_absen).toLocaleDateString('id-ID');
+        const key = `${curr.nama_lengkap}-${dateKey}`;
+        
+        if (!acc[key]) {
+          acc[key] = {
+            ...curr,
+            data_masuk: null,
+            data_pulang: null
+          };
+        }
+
+        const statusLower = curr.status.toLowerCase();
+        if (statusLower.includes('masuk') || statusLower.includes('terlambat')) {
+          acc[key].data_masuk = curr;
+        } else if (statusLower.includes('pulang')) {
+          acc[key].data_pulang = curr;
+        }
+        
+        return acc;
+      }, {});
+
+      setRekap(Object.values(grouped));
       
       if (dataSetting.success && dataSetting.data) {
         const s = dataSetting.data;
@@ -78,24 +102,20 @@ export default function AdminDashboard() {
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const formData = new FormData();
     formData.append("file", file);
-
     Swal.fire({ title: "Mengunggah...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-
     try {
       const res = await fetch(`${API_URL}/admin/guru/import`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${localStorage.getItem("auth_token")}` },
         body: formData
       });
-
-      const result = await res.json();
       if (res.ok) {
         Swal.fire("Berhasil", "Data pegawai berhasil diimport!", "success");
         loadData();
       } else {
+        const result = await res.json();
         Swal.fire("Gagal", result.message || "Format file salah", "error");
       }
     } catch (err) {
@@ -219,13 +239,13 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB REKAP KEHADIRAN (MODIFIED STATUS COLUMN) */}
+        {/* TAB REKAP KEHADIRAN (Satu Baris Per Guru) */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
             <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
                 <div>
-                  <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">Log Absensi Pegawai</h3>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Status Real-time & Geofencing</p>
+                  <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">Rekap Absensi Harian</h3>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">1 Baris Per Pegawai / Hari</p>
                 </div>
                 <span className="bg-red-100 text-red-600 text-[9px] font-black px-3 py-1 rounded-full uppercase italic">Zona Waktu: WITA</span>
             </div>
@@ -233,12 +253,10 @@ export default function AdminDashboard() {
               <table className="w-full">
                 <thead className="bg-white text-slate-400 uppercase text-[9px] font-black tracking-widest border-b">
                   <tr>
-                    <th rowSpan={2} className="p-6 text-center w-20 border-r">Foto</th>
-                    <th rowSpan={2} className="p-6 text-left border-r">Nama Pegawai</th>
+                    <th rowSpan={2} className="p-6 text-left border-r">Pegawai</th>
                     <th rowSpan={2} className="p-6 text-center border-r">Tanggal</th>
-                    <th colSpan={2} className="p-3 text-center border-b border-r bg-slate-50/50 text-red-600">Status Kehadiran</th>
-                    <th rowSpan={2} className="p-6 text-left border-r">Keterangan Lokasi</th>
-                    <th rowSpan={2} className="p-6 text-center">Peta</th>
+                    <th colSpan={2} className="p-3 text-center border-b border-r bg-slate-50 text-red-600">Jam & Status Scan</th>
+                    <th rowSpan={2} className="p-6 text-center">Lokasi & Peta</th>
                   </tr>
                   <tr className="border-b">
                     <th className="p-3 text-center border-r bg-slate-50/30">Masuk</th>
@@ -246,20 +264,23 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {rekap.length > 0 ? rekap.map((r: any) => (
-                    <tr key={r.id} className="hover:bg-slate-50/80 transition">
-                      <td className="p-4 text-center border-r">
-                        <div className="relative inline-block group">
-                          <img 
-                            src={r.foto_wajah ? `https://backendabsen.mejatika.com/storage/${r.foto_wajah}` : '/no-avatar.png'} 
-                            className="w-12 h-12 object-cover rounded-2xl border-2 border-white shadow-md transition-all duration-300 group-hover:scale-[2.5] group-hover:z-50 relative" 
-                            alt="Scan" 
-                          />
-                        </div>
-                      </td>
+                  {rekap.length > 0 ? rekap.map((r: any, idx: number) => (
+                    <tr key={idx} className="hover:bg-slate-50/80 transition">
                       <td className="p-6 border-r">
-                        <div className="font-black text-slate-800 uppercase text-xs">{r.nama_lengkap}</div>
-                        <div className="text-[9px] font-bold text-slate-400 uppercase italic">{r.nip || 'Tanpa NIP'}</div>
+                        <div className="flex items-center gap-3">
+                           {/* Foto Wajah Diambil dari Scan Masuk atau Pulang */}
+                           <div className="relative group">
+                              <img 
+                                src={(r.data_masuk?.foto_wajah || r.data_pulang?.foto_wajah) ? `https://backendabsen.mejatika.com/storage/${r.data_masuk?.foto_wajah || r.data_pulang?.foto_wajah}` : '/no-avatar.png'} 
+                                className="w-10 h-10 object-cover rounded-xl border border-slate-200" 
+                                alt="F" 
+                              />
+                           </div>
+                           <div>
+                              <div className="font-black text-slate-800 uppercase text-xs">{r.nama_lengkap}</div>
+                              <div className="text-[9px] font-bold text-slate-400 uppercase">{r.nip || 'No NIP'}</div>
+                           </div>
+                        </div>
                       </td>
                       <td className="p-6 text-center border-r">
                         <div className="font-bold text-slate-700 text-xs">
@@ -267,51 +288,50 @@ export default function AdminDashboard() {
                         </div>
                       </td>
 
-                      {/* KOLOM STATUS MASUK */}
-                      <td className="p-4 text-center border-r min-w-[120px]">
-                        {r.status.toLowerCase().includes('masuk') || r.status.toLowerCase().includes('terlambat') ? (
-                          <div className="flex flex-col items-center gap-1">
-                            <span className="text-[10px] font-black text-red-600">
-                              {new Date(r.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
+                      {/* KOLOM MASUK */}
+                      <td className="p-4 text-center border-r min-w-[130px]">
+                        {r.data_masuk ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs font-black text-slate-700">
+                              {new Date(r.data_masuk.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
                             </span>
-                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${r.status.includes('Terlambat') ? 'bg-orange-100 text-orange-600 border border-orange-200' : 'bg-green-50 text-green-600 border border-green-100'}`}>
-                              {r.status}
+                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${r.data_masuk.status.includes('Terlambat') ? 'bg-orange-100 text-orange-600' : 'bg-green-50 text-green-600 border border-green-100'}`}>
+                              {r.data_masuk.status}
                             </span>
                           </div>
-                        ) : <span className="text-slate-200">-</span>}
+                        ) : <span className="text-slate-200 text-[10px] font-black italic">BELUM SCAN</span>}
                       </td>
 
-                      {/* KOLOM STATUS PULANG */}
-                      <td className="p-4 text-center border-r min-w-[120px]">
-                        {r.status.toLowerCase().includes('pulang') ? (
-                          <div className="flex flex-col items-center gap-1">
-                            <span className="text-[10px] font-black text-blue-600">
-                              {new Date(r.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
+                      {/* KOLOM PULANG */}
+                      <td className="p-4 text-center border-r min-w-[130px]">
+                        {r.data_pulang ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs font-black text-blue-600">
+                              {new Date(r.data_pulang.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
                             </span>
                             <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100">
-                              {r.status}
+                              {r.data_pulang.status}
                             </span>
                           </div>
-                        ) : <span className="text-slate-200">-</span>}
+                        ) : <span className="text-slate-200 text-[10px] font-black italic">BELUM SCAN</span>}
                       </td>
 
-                      <td className="p-6 border-r">
-                        <div className={`text-[10px] font-bold uppercase leading-relaxed ${r.keterangan_lokasi?.includes('luar') ? 'text-red-500' : 'text-slate-400'}`}>
-                          {r.keterangan_lokasi}
-                        </div>
-                      </td>
+                      {/* LOKASI & PETA */}
                       <td className="p-6 text-center">
-                        <a 
-                          href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} 
-                          target="_blank" 
-                          className="inline-flex items-center justify-center w-9 h-9 bg-slate-100 text-slate-600 rounded-xl hover:bg-red-600 hover:text-white transition shadow-sm"
-                        >
-                          📍
-                        </a>
+                        <div className="flex flex-col items-center gap-2">
+                           <div className={`text-[9px] font-bold uppercase leading-tight max-w-[150px] ${(r.data_masuk?.keterangan_lokasi?.includes('luar') || r.data_pulang?.keterangan_lokasi?.includes('luar')) ? 'text-red-500' : 'text-slate-400'}`}>
+                              {r.data_masuk?.keterangan_lokasi || r.data_pulang?.keterangan_lokasi || '-'}
+                           </div>
+                           <a 
+                             href={`https://www.google.com/maps?q=${r.data_masuk?.latitude || r.data_pulang?.latitude},${r.data_masuk?.longitude || r.data_pulang?.longitude}`} 
+                             target="_blank" 
+                             className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-lg hover:bg-red-600 hover:text-white transition"
+                           >📍</a>
+                        </div>
                       </td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={7} className="p-20 text-center font-black text-slate-300 uppercase tracking-widest text-xs">Data absensi belum tersedia</td></tr>
+                    <tr><td colSpan={5} className="p-20 text-center font-black text-slate-300 uppercase tracking-widest text-xs">Data absensi belum tersedia</td></tr>
                   )}
                 </tbody>
               </table>
@@ -391,7 +411,6 @@ export default function AdminDashboard() {
               </button>
            </div>
         )}
-
       </div>
 
       <style jsx global>{`
