@@ -93,7 +93,6 @@ export default function HomeAbsensi() {
           ctx?.clearRect(0, 0, canvas.width, canvas.height);
 
           if (detection) {
-            // Fix Type Error: Akses .detection.box
             const { width } = detection.detection.box;
 
             if (width >= 80 && width <= 280) {
@@ -132,6 +131,24 @@ export default function HomeAbsensi() {
       const checkData = await checkRes.json();
       const jumlahAbsen = checkData.jumlah_absen || 0;
 
+      // Cek apakah sudah absen lengkap (Masuk & Pulang)
+      if (checkData.sudah_lengkap) {
+         await Swal.fire({
+            title: "SUDAH LENGKAP",
+            text: `Halo ${checkData.nama}, Anda sudah melakukan absensi masuk dan pulang hari ini.`,
+            icon: "info",
+            confirmButtonText: "Ke Dashboard Guru",
+            showCancelButton: true,
+            cancelButtonText: "Kembali",
+            confirmButtonColor: "#1e293b",
+            allowOutsideClick: false
+         }).then((result) => {
+            if (result.isConfirmed) router.push("/guru");
+            else resetScanner();
+         });
+         return;
+      }
+
       const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
           timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
       }).format(new Date());
@@ -158,6 +175,7 @@ export default function HomeAbsensi() {
           showCancelButton: true,
           confirmButtonText: "Kirim",
           cancelButtonText: "Batal",
+          confirmButtonColor: "#dc2626",
           allowOutsideClick: false,
           inputValidator: (value) => { if (!value) return 'Alasan wajib dipilih!'; }
         });
@@ -200,23 +218,23 @@ export default function HomeAbsensi() {
           title: "BERHASIL",
           html: `<div class="text-sm"><b>${data.message}</b><br/><small class="text-slate-500">${new Date().toLocaleTimeString('id-ID')}</small></div>`,
           icon: "success",
-          timer: 3000,
+          timer: 2000,
           showConfirmButton: false
         });
 
         const { isConfirmed } = await Swal.fire({
           title: "Absensi Selesai",
-          text: "Ingin melihat riwayat absensi Anda?",
+          text: "Ingin melihat riwayat absensi Anda di Dashboard?",
           icon: "question",
           showCancelButton: true,
           confirmButtonText: "Ya, Dashboard",
           cancelButtonText: "Menu Utama",
-          confirmButtonColor: "#3085d6",
+          confirmButtonColor: "#1e293b",
           cancelButtonColor: "#aaa",
           allowOutsideClick: false
         });
 
-        if (isConfirmed) router.push("/dashboard-absensi");
+        if (isConfirmed) router.push("/guru");
         else resetScanner();
       } else {
         await Swal.fire("GAGAL", data.message, "error");
@@ -253,17 +271,14 @@ export default function HomeAbsensi() {
             <span className="text-2xl">👤</span> {faceMatcher ? (coords ? "ABSEN SEKARANG" : "MENUNGGU GPS...") : "LOADING AI..."}
           </button>
           
-          <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors">🔐 Admin Login</button>
+          <button onClick={() => router.push("/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors">🔐 LOGIN SISTEM</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden">
-      <div className="w-full max-w-md flex justify-start mt-2 mb-2">
-        <button onClick={resetScanner} className="bg-red-600 px-4 py-2 rounded-xl text-white text-[10px] font-black z-50 shadow-lg hover:bg-red-700">← KEMBALI</button>
-      </div>
+    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden justify-center">
       
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
         <Webcam 
@@ -275,7 +290,7 @@ export default function HomeAbsensi() {
         />
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" />
         
-        {/* Real-time GPS Display in Camera */}
+        {/* Real-time GPS Display */}
         <div className="absolute top-6 left-0 w-full flex justify-center z-40">
            <div className="bg-black/30 backdrop-blur-md px-4 py-1 rounded-full border border-white/10">
               <p className="text-[9px] text-cyan-400 font-mono tracking-tighter">
@@ -284,21 +299,20 @@ export default function HomeAbsensi() {
            </div>
         </div>
 
-        {/* Dynamic Face Frame (Replace static animation) */}
+        {/* Dynamic Face Frame */}
         <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
            <div className={`w-56 h-72 rounded-[50px] border-2 transition-all duration-500 
              ${scanStatus === 'searching' ? 'border-white/40 border-dashed' : 
                scanStatus === 'locked' ? 'border-cyan-400 shadow-[0_0_25px_#22d3ee] scale-105' : 
                'border-green-500 shadow-[0_0_40px_#22c55e] scale-110'}`}>
              
-             {/* Glow Pulse Effect when Locked/Success */}
              {scanStatus !== 'searching' && (
                <div className="absolute inset-0 rounded-[50px] animate-pulse-glow border-4 border-transparent"></div>
              )}
            </div>
         </div>
         
-        {/* Status Overlay & Instructions */}
+        {/* Status Overlay */}
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/95 via-black/50 to-transparent p-6 text-center">
             <div className={`mb-2 py-1 px-4 inline-block rounded-full text-[10px] font-black uppercase 
               ${scanStatus === 'searching' ? 'bg-slate-800 text-slate-400' : 'bg-cyan-500 text-white animate-bounce'}`}>
@@ -311,6 +325,16 @@ export default function HomeAbsensi() {
                 </span>
             </div>
         </div>
+      </div>
+
+      {/* TOMBOL KEMBALI DI BAWAH KAMERA */}
+      <div className="w-full max-w-md mt-6 flex justify-center">
+        <button 
+          onClick={resetScanner} 
+          className="bg-white/80 backdrop-blur-md border border-slate-200 px-10 py-4 rounded-2xl text-slate-600 text-[12px] font-black shadow-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all active:scale-95"
+        >
+          ← BATALKAN SCAN
+        </button>
       </div>
 
       <style jsx global>{`
