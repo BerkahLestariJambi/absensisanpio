@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -12,35 +12,57 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// FUNGSI DINAMIS UNTUK TITLE DAN FAVICON
-export async function generateMetadata(): Promise<Metadata> {
-  const API_URL = "https://backendabsen.mejatika.com";
-  
-  try {
-    const res = await fetch(`${API_URL}/api/setting-app`, {
-      next: { revalidate: 60 }, 
-    });
-    const result = await res.json();
-    
-    // Ambil data dari backend (sesuaikan dengan struktur JSON Anda)
-    const d = result.success ? result.data : result;
-    const schoolName = d?.nama_sekolah || "Sistem Absensi";
-    const logoPath = d?.logo_sekolah;
+// Konfigurasi Viewport untuk mobile agar tidak zoom otomatis pada input
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  themeColor: "#dc2626", // Warna merah sesuai tema aplikasi Anda
+};
 
-    // Link logo lengkap ke storage backend
+const BASE_API_URL = "https://backendabsen.mejatika.com";
+
+export async function generateMetadata(): Promise<Metadata> {
+  try {
+    // Mengambil data setting dengan revalidate 60 detik
+    const res = await fetch(`${BASE_API_URL}/api/setting-app`, {
+      next: { revalidate: 60 },
+    });
+    
+    const result = await res.json();
+    const d = result.success ? result.data : result;
+
+    // Ambil data spesifik dari key-value store backend
+    const schoolName = d?.nama_sekolah || "Sistem Absensi Online";
+    const logoPath = d?.logo_sekolah;
+    
+    // Logika penentuan URL Favicon
+    // Kita tambahkan random query string (?v=...) agar browser dipaksa refresh icon jika ada perubahan
+    const version = Date.now();
     const faviconUrl = logoPath 
-      ? `${API_URL}/storage/${logoPath}` 
-      : "/favicon.ico"; // Fallback ke favicon default jika logo kosong
+      ? `${BASE_API_URL}/storage/${logoPath}?v=${version}` 
+      : "/favicon.ico";
 
     return {
-      title: `Absensi - ${schoolName}`,
-      description: `Sistem Informasi Absensi Online Resmi ${schoolName}`,
-      icons: {
-        icon: faviconUrl, // Ini yang mengganti logo React di tab browser
-        apple: faviconUrl,
+      title: {
+        template: `%s | ${schoolName}`,
+        default: schoolName,
       },
+      description: `Sistem Informasi Absensi Online Resmi - ${schoolName}. Pantau kehadiran pegawai secara real-time.`,
+      metadataBase: new URL(BASE_API_URL),
+      icons: {
+        icon: [
+          { url: faviconUrl },
+          { url: faviconUrl, sizes: "32x32", type: "image/png" },
+        ],
+        apple: [
+          { url: faviconUrl, sizes: "180x180", type: "image/png" },
+        ],
+      },
+      manifest: "/manifest.json", // Opsional jika Anda ingin membuat PWA
     };
   } catch (error) {
+    console.error("Metadata fetch error:", error);
     return {
       title: "Sistem Absensi Online",
       icons: {
@@ -56,9 +78,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="id">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-slate-50`}
       >
         {children}
       </body>
