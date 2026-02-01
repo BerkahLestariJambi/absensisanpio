@@ -7,17 +7,18 @@ export default function AdminSetting() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [adminLoc, setAdminLoc] = useState<{lat: number, lng: number} | null>(null);
-  
+  const [adminLoc, setAdminLoc] = useState<{ lat: number, lng: number } | null>(null);
+
   const [formData, setFormData] = useState({
     nama_sekolah: "",
     tahun_pelajaran: "",
     semester: "",
+    jam_masuk: "07:00", // Tambahan Field Jam Masuk
     jam_pulang_normal: "",
     jam_pulang_cepat_mulai: "",
-    lat_sekolah: "", 
-    lng_sekolah: "", 
-    radius_meter: "50", // Standar radius 50 meter
+    lat_sekolah: "",
+    lng_sekolah: "",
+    radius_meter: "50",
     logo_sekolah: null as File | null,
     current_logo: ""
   });
@@ -27,12 +28,16 @@ export default function AdminSetting() {
       try {
         const res = await fetch("https://backendabsen.mejatika.com/api/setting-app");
         const result = await res.json();
-        if (result.success) {
-          const d = result.data;
+        
+        // Sesuaikan dengan struktur data backend (biasanya result.data atau result langsung)
+        const d = result.success ? result.data : result;
+
+        if (d) {
           setFormData({
             nama_sekolah: d.nama_sekolah || "",
             tahun_pelajaran: d.tahun_pelajaran || "",
             semester: d.semester || "1",
+            jam_masuk: d.jam_masuk || "07:00",
             jam_pulang_normal: d.jam_pulang_normal || "12:45",
             jam_pulang_cepat_mulai: d.jam_pulang_cepat_mulai || "07:15",
             lat_sekolah: d.lat_sekolah || "",
@@ -49,7 +54,6 @@ export default function AdminSetting() {
       }
     };
 
-    // Pantau lokasi Admin secara real-time untuk akurasi
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition((pos) => {
         setAdminLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
@@ -59,7 +63,6 @@ export default function AdminSetting() {
     loadConfig();
   }, []);
 
-  // Fungsi untuk menyalin lokasi admin ke form koordinat sekolah
   const tangkapLokasiSekolah = () => {
     if (adminLoc) {
       setFormData(prev => ({
@@ -71,7 +74,8 @@ export default function AdminSetting() {
         title: "Lokasi Terkunci!",
         text: `Koordinat ${adminLoc.lat}, ${adminLoc.lng} berhasil diambil.`,
         icon: "success",
-        timer: 1500
+        timer: 1500,
+        showConfirmButton: false
       });
     } else {
       Swal.fire("GPS Belum Siap", "Mohon tunggu sebentar hingga sinyal GPS stabil.", "warning");
@@ -82,14 +86,21 @@ export default function AdminSetting() {
     e.preventDefault();
     setSaving(true);
 
+    const token = localStorage.getItem("auth_token");
     const dataToSend = new FormData();
-    // Append semua data teks
-    Object.entries(formData).forEach(([key, value]) => {
-      if (key !== 'logo_sekolah' && key !== 'current_logo' && value !== null) {
-        dataToSend.append(key, value.toString());
-      }
-    });
-    // Append logo jika ada
+    
+    // Append data teks
+    dataToSend.append("nama_sekolah", formData.nama_sekolah);
+    dataToSend.append("tahun_pelajaran", formData.tahun_pelajaran);
+    dataToSend.append("semester", formData.semester);
+    dataToSend.append("jam_masuk", formData.jam_masuk);
+    dataToSend.append("jam_pulang_normal", formData.jam_pulang_normal);
+    dataToSend.append("jam_pulang_cepat_mulai", formData.jam_pulang_cepat_mulai);
+    dataToSend.append("lat_sekolah", formData.lat_sekolah);
+    dataToSend.append("lng_sekolah", formData.lng_sekolah);
+    dataToSend.append("radius_meter", formData.radius_meter);
+
+    // Append logo jika ada file baru yang dipilih
     if (formData.logo_sekolah) {
       dataToSend.append("logo_sekolah", formData.logo_sekolah);
     }
@@ -97,12 +108,23 @@ export default function AdminSetting() {
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/admin/setting-update", {
         method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`, // Tambahkan token jika endpoint ini terproteksi
+          "Accept": "application/json"
+        },
         body: dataToSend,
       });
 
       if (res.ok) {
-        await Swal.fire("BERHASIL", "Pengaturan telah disimpan!", "success");
-        router.refresh();
+        await Swal.fire({
+          title: "BERHASIL",
+          text: "Pengaturan telah diperbarui!",
+          icon: "success",
+          confirmButtonText: "OK",
+          confirmButtonColor: "#dc2626"
+        });
+        // Kembali ke Dashboard
+        router.push("/admin/dashboard");
       } else {
         const errorData = await res.json();
         Swal.fire("GAGAL", errorData.message || "Gagal menyimpan perubahan", "error");
@@ -120,12 +142,41 @@ export default function AdminSetting() {
     <div className="min-h-screen bg-slate-50 p-4 md:p-10 border-t-8 border-red-600">
       <div className="max-w-2xl mx-auto bg-white rounded-[40px] shadow-2xl border border-slate-200 overflow-hidden">
         
-        <div className="bg-red-600 p-8 text-center">
+        <div className="bg-red-600 p-8 text-center relative">
+          <button 
+            onClick={() => router.back()} 
+            className="absolute left-6 top-1/2 -translate-y-1/2 text-white/80 hover:text-white font-bold text-sm"
+          >
+            ← KEMBALI
+          </button>
           <h1 className="text-white text-xl font-black uppercase">Setting Instansi & Lokasi</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
           
+          {/* SEKSI 0: UPLOAD LOGO */}
+          <div className="space-y-4">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Logo Instansi</h3>
+            <div className="flex items-center gap-6 p-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                <div className="w-20 h-20 bg-white rounded-xl shadow-sm flex items-center justify-center overflow-hidden border">
+                    {formData.logo_sekolah ? (
+                        <img src={URL.createObjectURL(formData.logo_sekolah)} className="w-full h-full object-contain" alt="Preview" />
+                    ) : formData.current_logo ? (
+                        <img src={`https://backendabsen.mejatika.com/storage/${formData.current_logo}`} className="w-full h-full object-contain" alt="Current" />
+                    ) : <span className="text-2xl">🏫</span>}
+                </div>
+                <div className="flex-1">
+                    <input 
+                        type="file" 
+                        accept="image/*"
+                        onChange={(e) => setFormData({...formData, logo_sekolah: e.target.files?.[0] || null})}
+                        className="text-xs font-bold text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-red-50 file:text-red-600 hover:file:bg-red-100 cursor-pointer"
+                    />
+                    <p className="text-[9px] text-slate-400 mt-2">PNG/JPG. Maksimal 2MB.</p>
+                </div>
+            </div>
+          </div>
+
           {/* SEKSI 1: PROFIL */}
           <div className="space-y-4">
             <h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Data Sekolah</h3>
@@ -133,9 +184,10 @@ export default function AdminSetting() {
               type="text" placeholder="Nama Sekolah" value={formData.nama_sekolah}
               onChange={(e) => setFormData({...formData, nama_sekolah: e.target.value})}
               className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-red-500 font-bold"
+              required
             />
             <div className="grid grid-cols-2 gap-4">
-              <input type="text" placeholder="TP: 2025/2026" value={formData.tahun_pelajaran} onChange={(e) => setFormData({...formData, tahun_pelajaran: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none" />
+              <input type="text" placeholder="TP: 2025/2026" value={formData.tahun_pelajaran} onChange={(e) => setFormData({...formData, tahun_pelajaran: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold" />
               <select value={formData.semester} onChange={(e) => setFormData({...formData, semester: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold">
                 <option value="1">Semester Ganjil</option>
                 <option value="2">Semester Genap</option>
@@ -179,6 +231,10 @@ export default function AdminSetting() {
           {/* SEKSI 3: JAM KERJA */}
           <div className="space-y-4">
             <h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Aturan Waktu</h3>
+            <div>
+                <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">Jam Masuk (Batas Terlambat)</label>
+                <input type="time" value={formData.jam_masuk} onChange={(e) => setFormData({...formData, jam_masuk: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold mb-4" />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-[9px] font-bold text-slate-400 ml-2">PULANG NORMAL</label>
