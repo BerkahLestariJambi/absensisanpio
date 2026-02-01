@@ -131,9 +131,9 @@ export default function HomeAbsensi() {
       const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
       const checkData = await checkRes.json();
 
-      // CEK STATUS LENGKAP DULU
+      // CEK STATUS LENGKAP (Sudah Masuk & Pulang)
       if (checkData.sudah_lengkap) {
-         await Swal.fire({
+          await Swal.fire({
             title: "SUDAH LENGKAP",
             html: `Halo <b>${checkData.nama}</b>,<br/>Anda sudah absen masuk & pulang hari ini.`,
             icon: "info",
@@ -142,11 +142,11 @@ export default function HomeAbsensi() {
             cancelButtonText: "Kembali",
             confirmButtonColor: "#1e293b",
             allowOutsideClick: false
-         }).then((result) => {
-            if (result.isConfirmed) router.push("/guru");
+          }).then((result) => {
+            if (result.isConfirmed) router.push(`/guru?id=${guruId}`); // Langsung akses pakai ID
             else resetScanner();
-         });
-         return;
+          });
+          return;
       }
 
       // LOGIKA PULANG CEPAT
@@ -202,9 +202,9 @@ export default function HomeAbsensi() {
   const sendToServer = async (guruId: string, lat: number, lng: number, image?: string | null, statusTambahan?: string) => {
     try {
       if (lat === 0 || lng === 0) {
-         await Swal.fire("GPS Belum Siap", "Mohon tunggu sinyal lokasi.", "warning");
-         resetScanner();
-         return;
+          await Swal.fire("GPS Belum Siap", "Mohon tunggu sinyal lokasi.", "warning");
+          resetScanner();
+          return;
       }
 
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
@@ -226,7 +226,7 @@ export default function HomeAbsensi() {
 
         const { isConfirmed } = await Swal.fire({
           title: "Absensi Selesai",
-          text: "Lihat riwayat di Dashboard Guru?",
+          text: "Lihat riwayat di Dashboard Anda?",
           icon: "question",
           showCancelButton: true,
           confirmButtonText: "Ya, Dashboard",
@@ -235,7 +235,7 @@ export default function HomeAbsensi() {
           allowOutsideClick: false
         });
 
-        if (isConfirmed) router.push("/guru");
+        if (isConfirmed) router.push(`/guru?id=${guruId}`); // Langsung akses pakai ID
         else resetScanner();
       } else {
         await Swal.fire("GAGAL", data.message, "error");
@@ -271,8 +271,8 @@ export default function HomeAbsensi() {
             <span className="text-2xl">👤</span> {faceMatcher ? (coords ? "ABSEN SEKARANG" : "MENUNGGU GPS...") : "LOADING AI..."}
           </button>
           
-          {/* TOMBOL LOGIN TETAP ADA & BERFUNGSI */}
-          <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors">🔐 LOGIN SISTEM</button>
+          {/* TOMBOL LOGIN KHUSUS ADMIN/KEPSEK */}
+          <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors">🔐 LOGIN ADMIN / KEPSEK</button>
         </div>
       </div>
     );
