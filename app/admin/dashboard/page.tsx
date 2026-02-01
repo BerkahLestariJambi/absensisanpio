@@ -44,7 +44,6 @@ export default function AdminDashboard() {
       setGurus(Array.isArray(dataGuru) ? dataGuru : dataGuru.data || []);
       setIzins(Array.isArray(dataIzin) ? dataIzin : dataIzin.data || []);
       
-      // LOGIKA GROUPING DATA REKAP (1 Baris per Guru per Hari)
       const rawRekap = Array.isArray(dataRekap) ? dataRekap : dataRekap.data || [];
       const grouped = rawRekap.reduce((acc: any, curr: any) => {
         const dateKey = new Date(curr.waktu_absen).toLocaleDateString('id-ID');
@@ -209,7 +208,7 @@ export default function AdminDashboard() {
               
               <div className="bg-white rounded-[32px] shadow-sm border border-slate-100 overflow-hidden">
                 <table className="w-full text-left border-collapse">
-                  <thead className="bg-slate-50 text-slate-400 uppercase text-[9px] font-black tracking-widest">
+                  <thead className="bg-slate-800 text-white uppercase text-[9px] font-black tracking-widest">
                     <tr>
                       <th className="p-6">Informasi Pegawai</th>
                       <th className="p-6">NIP/NUPTK</th>
@@ -239,7 +238,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB REKAP KEHADIRAN (Satu Baris Per Guru) */}
+        {/* TAB REKAP KEHADIRAN (Warna Header Diperbarui) */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
             <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
@@ -251,16 +250,16 @@ export default function AdminDashboard() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-white text-slate-400 uppercase text-[9px] font-black tracking-widest border-b">
+                <thead className="bg-slate-800 text-slate-200 uppercase text-[9px] font-black tracking-widest">
                   <tr>
-                    <th rowSpan={2} className="p-6 text-left border-r">Pegawai</th>
-                    <th rowSpan={2} className="p-6 text-center border-r">Tanggal</th>
-                    <th colSpan={2} className="p-3 text-center border-b border-r bg-slate-50 text-red-600">Jam & Status Scan</th>
+                    <th rowSpan={2} className="p-6 text-left border-r border-slate-700">Pegawai</th>
+                    <th rowSpan={2} className="p-6 text-center border-r border-slate-700">Tanggal</th>
+                    <th colSpan={2} className="p-3 text-center border-b border-slate-700 bg-slate-700 text-red-400">Jam & Status Scan</th>
                     <th rowSpan={2} className="p-6 text-center">Lokasi & Peta</th>
                   </tr>
-                  <tr className="border-b">
-                    <th className="p-3 text-center border-r bg-slate-50/30">Masuk</th>
-                    <th className="p-3 text-center border-r bg-slate-50/30">Pulang</th>
+                  <tr className="bg-slate-700">
+                    <th className="p-3 text-center border-r border-slate-600 text-white">Masuk</th>
+                    <th className="p-3 text-center border-r border-slate-600 text-white">Pulang</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -268,7 +267,6 @@ export default function AdminDashboard() {
                     <tr key={idx} className="hover:bg-slate-50/80 transition">
                       <td className="p-6 border-r">
                         <div className="flex items-center gap-3">
-                           {/* Foto Wajah Diambil dari Scan Masuk atau Pulang */}
                            <div className="relative group">
                               <img 
                                 src={(r.data_masuk?.foto_wajah || r.data_pulang?.foto_wajah) ? `https://backendabsen.mejatika.com/storage/${r.data_masuk?.foto_wajah || r.data_pulang?.foto_wajah}` : '/no-avatar.png'} 
@@ -288,7 +286,6 @@ export default function AdminDashboard() {
                         </div>
                       </td>
 
-                      {/* KOLOM MASUK */}
                       <td className="p-4 text-center border-r min-w-[130px]">
                         {r.data_masuk ? (
                           <div className="flex flex-col gap-1">
@@ -302,7 +299,6 @@ export default function AdminDashboard() {
                         ) : <span className="text-slate-200 text-[10px] font-black italic">BELUM SCAN</span>}
                       </td>
 
-                      {/* KOLOM PULANG */}
                       <td className="p-4 text-center border-r min-w-[130px]">
                         {r.data_pulang ? (
                           <div className="flex flex-col gap-1">
@@ -316,7 +312,6 @@ export default function AdminDashboard() {
                         ) : <span className="text-slate-200 text-[10px] font-black italic">BELUM SCAN</span>}
                       </td>
 
-                      {/* LOKASI & PETA */}
                       <td className="p-6 text-center">
                         <div className="flex flex-col items-center gap-2">
                            <div className={`text-[9px] font-bold uppercase leading-tight max-w-[150px] ${(r.data_masuk?.keterangan_lokasi?.includes('luar') || r.data_pulang?.keterangan_lokasi?.includes('luar')) ? 'text-red-500' : 'text-slate-400'}`}>
@@ -347,10 +342,10 @@ export default function AdminDashboard() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-white text-slate-400 uppercase text-[9px] font-black tracking-widest border-b">
+                <thead className="bg-slate-800 text-white uppercase text-[9px] font-black tracking-widest border-b">
                   <tr>
-                    <th className="p-6">Nama Pegawai</th>
-                    <th className="p-6">Jenis & Alasan</th>
+                    <th className="p-6 text-left">Nama Pegawai</th>
+                    <th className="p-6 text-left">Jenis & Alasan</th>
                     <th className="p-6 text-center">Lampiran</th>
                     <th className="p-6 text-center">Status</th>
                   </tr>
