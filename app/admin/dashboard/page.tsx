@@ -46,7 +46,6 @@ export default function AdminDashboard() {
       setIzins(Array.isArray(dataIzin) ? dataIzin : dataIzin.data || []);
       setRekap(Array.isArray(dataRekap) ? dataRekap : dataRekap.data || []);
       
-      // Sinkronisasi Nama & Logo Sekolah dari Key-Value Backend
       if (dataSetting.success && dataSetting.data) {
         const s = dataSetting.data;
         setSchoolName(s.nama_sekolah || "SANPIO");
@@ -76,7 +75,6 @@ export default function AdminDashboard() {
     router.push("/admin/login");
   };
 
-  // FITUR IMPORT EXCEL
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -129,7 +127,6 @@ export default function AdminDashboard() {
       {/* HEADER SECTION */}
       <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[30px] shadow-sm border border-slate-100">
         <div className="flex items-center gap-4">
-          {/* Logo Sekolah Dinamis */}
           <div className="w-14 h-14 bg-slate-50 rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-inner">
             {schoolLogo ? (
               <img src={`https://backendabsen.mejatika.com/storage/${schoolLogo}`} className="w-full h-full object-contain" alt="Logo" />
@@ -182,7 +179,6 @@ export default function AdminDashboard() {
                     <p className="text-[10px] text-slate-400 ml-2 font-bold italic">Total: {gurus.length} Orang</p>
                  </div>
                  <div className="flex gap-2 w-full md:w-auto">
-                    {/* INPUT FILE HIDDEN UNTUK IMPORT EXCEL */}
                     <label className="cursor-pointer bg-green-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black hover:bg-green-700 transition shadow-lg flex items-center gap-2">
                       📥 IMPORT EXCEL
                       <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleImportExcel} />
@@ -223,7 +219,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB REKAP KEHADIRAN */}
+        {/* TAB REKAP KEHADIRAN (MODIFIED STATUS COLUMN) */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
             <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
@@ -237,18 +233,22 @@ export default function AdminDashboard() {
               <table className="w-full">
                 <thead className="bg-white text-slate-400 uppercase text-[9px] font-black tracking-widest border-b">
                   <tr>
-                    <th className="p-6 text-center w-20">Foto</th>
-                    <th className="p-6 text-left">Nama Pegawai</th>
-                    <th className="p-6 text-center">Jam Scan</th>
-                    <th className="p-6 text-center">Status</th>
-                    <th className="p-6 text-left">Keterangan Lokasi</th>
-                    <th className="p-6 text-center">Peta</th>
+                    <th rowSpan={2} className="p-6 text-center w-20 border-r">Foto</th>
+                    <th rowSpan={2} className="p-6 text-left border-r">Nama Pegawai</th>
+                    <th rowSpan={2} className="p-6 text-center border-r">Tanggal</th>
+                    <th colSpan={2} className="p-3 text-center border-b border-r bg-slate-50/50 text-red-600">Status Kehadiran</th>
+                    <th rowSpan={2} className="p-6 text-left border-r">Keterangan Lokasi</th>
+                    <th rowSpan={2} className="p-6 text-center">Peta</th>
+                  </tr>
+                  <tr className="border-b">
+                    <th className="p-3 text-center border-r bg-slate-50/30">Masuk</th>
+                    <th className="p-3 text-center border-r bg-slate-50/30">Pulang</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {rekap.length > 0 ? rekap.map((r: any) => (
                     <tr key={r.id} className="hover:bg-slate-50/80 transition">
-                      <td className="p-4 text-center">
+                      <td className="p-4 text-center border-r">
                         <div className="relative inline-block group">
                           <img 
                             src={r.foto_wajah ? `https://backendabsen.mejatika.com/storage/${r.foto_wajah}` : '/no-avatar.png'} 
@@ -257,30 +257,45 @@ export default function AdminDashboard() {
                           />
                         </div>
                       </td>
-                      <td className="p-6">
+                      <td className="p-6 border-r">
                         <div className="font-black text-slate-800 uppercase text-xs">{r.nama_lengkap}</div>
                         <div className="text-[9px] font-bold text-slate-400 uppercase italic">{r.nip || 'Tanpa NIP'}</div>
                       </td>
-                      <td className="p-6 text-center">
+                      <td className="p-6 text-center border-r">
                         <div className="font-bold text-slate-700 text-xs">
                            {new Date(r.waktu_absen).toLocaleDateString('id-ID', {day:'2-digit', month:'short'})}
                         </div>
-                        <div className="text-red-600 font-black text-sm tracking-tighter">
-                           {new Date(r.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
-                        </div>
                       </td>
-                      <td className="p-6 text-center">
-                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase inline-block min-w-[120px] ${
-                          r.status.includes('Terlambat') || r.status.includes('Luar') 
-                            ? 'bg-red-50 text-red-600 border border-red-100' 
-                            : r.status.includes('Pulang') 
-                            ? 'bg-blue-50 text-blue-600 border border-blue-100'
-                            : 'bg-green-50 text-green-600 border border-green-100'
-                        }`}>
-                           {r.status}
-                        </span>
+
+                      {/* KOLOM STATUS MASUK */}
+                      <td className="p-4 text-center border-r min-w-[120px]">
+                        {r.status.toLowerCase().includes('masuk') || r.status.toLowerCase().includes('terlambat') ? (
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-[10px] font-black text-red-600">
+                              {new Date(r.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${r.status.includes('Terlambat') ? 'bg-orange-100 text-orange-600 border border-orange-200' : 'bg-green-50 text-green-600 border border-green-100'}`}>
+                              {r.status}
+                            </span>
+                          </div>
+                        ) : <span className="text-slate-200">-</span>}
                       </td>
-                      <td className="p-6">
+
+                      {/* KOLOM STATUS PULANG */}
+                      <td className="p-4 text-center border-r min-w-[120px]">
+                        {r.status.toLowerCase().includes('pulang') ? (
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-[10px] font-black text-blue-600">
+                              {new Date(r.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100">
+                              {r.status}
+                            </span>
+                          </div>
+                        ) : <span className="text-slate-200">-</span>}
+                      </td>
+
+                      <td className="p-6 border-r">
                         <div className={`text-[10px] font-bold uppercase leading-relaxed ${r.keterangan_lokasi?.includes('luar') ? 'text-red-500' : 'text-slate-400'}`}>
                           {r.keterangan_lokasi}
                         </div>
@@ -296,7 +311,7 @@ export default function AdminDashboard() {
                       </td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={6} className="p-20 text-center font-black text-slate-300 uppercase tracking-widest text-xs">Data absensi belum tersedia</td></tr>
+                    <tr><td colSpan={7} className="p-20 text-center font-black text-slate-300 uppercase tracking-widest text-xs">Data absensi belum tersedia</td></tr>
                   )}
                 </tbody>
               </table>
