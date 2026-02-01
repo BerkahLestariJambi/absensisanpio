@@ -12,27 +12,40 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// FUNGSI UNTUK GENERATE METADATA SECARA DINAMIS
+// FUNGSI DINAMIS UNTUK TITLE DAN FAVICON
 export async function generateMetadata(): Promise<Metadata> {
+  const API_URL = "https://backendabsen.mejatika.com";
+  
   try {
-    // Ambil data dari API setting
-    const res = await fetch("https://backendabsen.mejatika.com/api/setting-app", {
-      next: { revalidate: 60 }, // Cache data selama 60 detik
+    const res = await fetch(`${API_URL}/api/setting-app`, {
+      next: { revalidate: 60 }, 
     });
     const result = await res.json();
     
-    // Ambil nama sekolah dari data (sesuaikan struktur JSON backend Anda)
-    const schoolName = result.success ? result.data.nama_sekolah : result.nama_sekolah;
+    // Ambil data dari backend (sesuaikan dengan struktur JSON Anda)
+    const d = result.success ? result.data : result;
+    const schoolName = d?.nama_sekolah || "Sistem Absensi";
+    const logoPath = d?.logo_sekolah;
+
+    // Link logo lengkap ke storage backend
+    const faviconUrl = logoPath 
+      ? `${API_URL}/storage/${logoPath}` 
+      : "/favicon.ico"; // Fallback ke favicon default jika logo kosong
 
     return {
-      title: schoolName ? `Absensi Online - ${schoolName}` : "Sistem Absensi Online",
-      description: `Sistem Informasi Absensi Online Resmi ${schoolName || ""}`,
+      title: `Absensi - ${schoolName}`,
+      description: `Sistem Informasi Absensi Online Resmi ${schoolName}`,
+      icons: {
+        icon: faviconUrl, // Ini yang mengganti logo React di tab browser
+        apple: faviconUrl,
+      },
     };
   } catch (error) {
-    // Fallback jika API gagal
     return {
       title: "Sistem Absensi Online",
-      description: "Sistem Informasi Absensi Online",
+      icons: {
+        icon: "/favicon.ico",
+      },
     };
   }
 }
