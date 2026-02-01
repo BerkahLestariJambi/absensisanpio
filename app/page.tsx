@@ -124,35 +124,32 @@ export default function HomeAbsensi() {
     return () => clearInterval(scanIntervalRef.current);
   }, [view, faceMatcher, isProcessing]);
 
-  // --- 3. LOGIKA RECOGNITION SUCCESS (FIXED) ---
+  // --- 3. LOGIKA RECOGNITION SUCCESS ---
   const handleRecognitionSuccess = async (guruId: string) => {
     try {
       const screenshot = webcamRef.current?.getScreenshot();
-      
-      // 1. Cek status ke server terlebih dahulu
       const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
       const checkData = await checkRes.json();
 
-      // PRIORITAS UTAMA: Jika sudah lengkap, jangan tampilkan dialog lain!
+      // CEK STATUS LENGKAP DULU
       if (checkData.sudah_lengkap) {
          await Swal.fire({
-            title: "ABSENSI LENGKAP",
-            html: `Halo <b>${checkData.nama}</b>,<br/>Anda sudah melakukan absensi masuk dan pulang hari ini.`,
+            title: "SUDAH LENGKAP",
+            html: `Halo <b>${checkData.nama}</b>,<br/>Anda sudah absen masuk & pulang hari ini.`,
             icon: "info",
             showCancelButton: true,
             confirmButtonText: "Ke Dashboard Guru",
-            cancelButtonText: "Selesai",
+            cancelButtonText: "Kembali",
             confirmButtonColor: "#1e293b",
-            cancelButtonColor: "#94a3b8",
             allowOutsideClick: false
          }).then((result) => {
-            if (result.isConfirmed) router.push("/guru"); // Pindah ke dashboard guru
+            if (result.isConfirmed) router.push("/guru");
             else resetScanner();
          });
-         return; // Berhenti di sini
+         return;
       }
 
-      // 2. Jika belum lengkap, cek apakah ini absen pulang cepat?
+      // LOGIKA PULANG CEPAT
       const jumlahAbsen = checkData.jumlah_absen || 0;
       const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
           timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
@@ -169,11 +166,10 @@ export default function HomeAbsensi() {
       const menitPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
       const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
-      // Logika dialog Pulang Cepat
       if (jumlahAbsen > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
         const { value: alasan } = await Swal.fire({
           title: "PULANG CEPAT",
-          text: "Anda terdeteksi pulang mendahului jadwal. Pilih alasan:",
+          text: "Pilih alasan pulang mendahului jadwal:",
           icon: "warning",
           input: "select",
           inputOptions: { "Izin": "Izin", "Sakit": "Sakit", "Tugas Luar": "Tugas Luar" },
@@ -189,13 +185,9 @@ export default function HomeAbsensi() {
         if (alasan) sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot, alasan);
         else resetScanner();
       } else {
-        // Absen normal (Masuk atau Pulang tepat waktu)
         sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot);
       }
-    } catch (e) { 
-      console.error(e);
-      resetScanner(); 
-    }
+    } catch (e) { resetScanner(); }
   };
 
   const resetScanner = () => {
@@ -226,15 +218,15 @@ export default function HomeAbsensi() {
       if (res.ok) {
         await Swal.fire({
           title: "BERHASIL",
-          html: `<div class="text-sm"><b>${data.message}</b><br/>Pukul: ${new Date().toLocaleTimeString('id-ID')}</div>`,
+          html: `<div class="text-sm"><b>${data.message}</b><br/>${new Date().toLocaleTimeString('id-ID')}</div>`,
           icon: "success",
           timer: 2000,
           showConfirmButton: false
         });
 
         const { isConfirmed } = await Swal.fire({
-          title: "Dashboard",
-          text: "Ingin melihat riwayat Anda sekarang?",
+          title: "Absensi Selesai",
+          text: "Lihat riwayat di Dashboard Guru?",
           icon: "question",
           showCancelButton: true,
           confirmButtonText: "Ya, Dashboard",
@@ -250,12 +242,11 @@ export default function HomeAbsensi() {
         resetScanner();
       }
     } catch (e) {
-      Swal.fire("Koneksi Error", "Gagal menghubungi server.", "error");
+      Swal.fire("Error", "Gagal menghubungi server.", "error");
       resetScanner();
     }
   };
 
-  // --- UI RENDER ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -280,6 +271,7 @@ export default function HomeAbsensi() {
             <span className="text-2xl">👤</span> {faceMatcher ? (coords ? "ABSEN SEKARANG" : "MENUNGGU GPS...") : "LOADING AI..."}
           </button>
           
+          {/* TOMBOL LOGIN TETAP ADA & BERFUNGSI */}
           <button onClick={() => router.push("/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors">🔐 LOGIN SISTEM</button>
         </div>
       </div>
@@ -289,13 +281,7 @@ export default function HomeAbsensi() {
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden justify-center">
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
-        <Webcam 
-          ref={webcamRef} 
-          audio={false} 
-          screenshotFormat="image/jpeg"
-          videoConstraints={videoConstraints} 
-          className="absolute inset-0 w-full h-full object-cover" 
-        />
+        <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={videoConstraints} className="absolute inset-0 w-full h-full object-cover" />
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" />
         
         <div className="absolute top-6 left-0 w-full flex justify-center z-40">
@@ -318,7 +304,7 @@ export default function HomeAbsensi() {
         <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/95 via-black/50 to-transparent p-6 text-center">
             <div className={`mb-2 py-1 px-4 inline-block rounded-full text-[10px] font-black uppercase 
               ${scanStatus === 'searching' ? 'bg-slate-800 text-slate-400' : 'bg-cyan-500 text-white animate-bounce'}`}>
-              Instruksi: {scanStatus === 'searching' ? 'Posisikan Wajah' : 'Tahan Posisi'}
+              Status: {scanStatus === 'searching' ? 'Posisikan Wajah' : 'Terkunci'}
             </div>
             <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-4 border border-white/20">
                 <span className={`text-[14px] font-black uppercase italic tracking-wider transition-colors
@@ -330,11 +316,8 @@ export default function HomeAbsensi() {
       </div>
 
       <div className="w-full max-w-md mt-6 flex justify-center">
-        <button 
-          onClick={resetScanner} 
-          className="bg-white/80 backdrop-blur-md border border-slate-200 px-10 py-4 rounded-2xl text-slate-600 text-[12px] font-black shadow-lg hover:bg-red-50 hover:text-red-600 transition-all active:scale-95"
-        >
-          ← BATALKAN SCAN
+        <button onClick={resetScanner} className="bg-white/80 backdrop-blur-md border border-slate-200 px-10 py-4 rounded-2xl text-slate-600 text-[12px] font-black shadow-lg hover:text-red-600 transition-all active:scale-95">
+          ← KEMBALI
         </button>
       </div>
 
