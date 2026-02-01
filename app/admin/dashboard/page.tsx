@@ -5,7 +5,7 @@ import Swal from "sweetalert2";
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("guru");
+  const [activeTab, setActiveTab] = useState("rekap");
   const [gurus, setGurus] = useState([]);
   const [izins, setIzins] = useState([]);
   const [rekap, setRekap] = useState([]);
@@ -44,6 +44,7 @@ export default function AdminDashboard() {
       setGurus(Array.isArray(dataGuru) ? dataGuru : dataGuru.data || []);
       setIzins(Array.isArray(dataIzin) ? dataIzin : dataIzin.data || []);
       
+      // LOGIKA GROUPING DATA REKAP (1 Baris per Guru per Hari)
       const rawRekap = Array.isArray(dataRekap) ? dataRekap : dataRekap.data || [];
       const grouped = rawRekap.reduce((acc: any, curr: any) => {
         const dateKey = new Date(curr.waktu_absen).toLocaleDateString('id-ID');
@@ -187,9 +188,9 @@ export default function AdminDashboard() {
         ))}
       </nav>
 
-      {/* CONTENT AREA */}
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
         
+        {/* TAB PEGAWAI */}
         {activeTab === "guru" && (
           <div className="space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
@@ -228,7 +229,7 @@ export default function AdminDashboard() {
                           <span className="bg-green-100 text-green-600 px-3 py-1 rounded-full text-[9px] font-black uppercase">Aktif</span>
                         </td>
                         <td className="p-6 text-center">
-                          <button onClick={() => router.push(`/admin/pegawai/edit/${g.id}`)} className="bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-600 transition p-2 rounded-lg">✏️ Edit</button>
+                          <button onClick={() => router.push(`/admin/pegawai/edit/${g.id}`)} className="bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-600 transition p-2 rounded-lg text-[10px] font-black">✏️ EDIT</button>
                         </td>
                       </tr>
                     ))}
@@ -238,7 +239,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB REKAP KEHADIRAN (Warna Header Diperbarui) */}
+        {/* TAB REKAP KEHADIRAN (Desain Satu Baris & Header Gelap Lengkap) */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
             <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
@@ -250,30 +251,28 @@ export default function AdminDashboard() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-slate-800 text-slate-200 uppercase text-[9px] font-black tracking-widest">
+                <thead className="bg-slate-800 text-white uppercase text-[9px] font-black tracking-widest">
                   <tr>
                     <th rowSpan={2} className="p-6 text-left border-r border-slate-700">Pegawai</th>
                     <th rowSpan={2} className="p-6 text-center border-r border-slate-700">Tanggal</th>
-                    <th colSpan={2} className="p-3 text-center border-b border-slate-700 bg-slate-700 text-red-400">Jam & Status Scan</th>
+                    <th colSpan={2} className="p-4 text-center border-b border-slate-700">Jam & Status Scan</th>
                     <th rowSpan={2} className="p-6 text-center">Lokasi & Peta</th>
                   </tr>
-                  <tr className="bg-slate-700">
-                    <th className="p-3 text-center border-r border-slate-600 text-white">Masuk</th>
-                    <th className="p-3 text-center border-r border-slate-600 text-white">Pulang</th>
+                  <tr>
+                    <th className="p-4 text-center border-r border-slate-700 bg-slate-800 text-red-400">Masuk</th>
+                    <th className="p-4 text-center border-r border-slate-700 bg-slate-800 text-blue-400">Pulang</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {rekap.length > 0 ? rekap.map((r: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-slate-50/80 transition">
+                    <tr key={idx} className="hover:bg-slate-50/80 transition text-xs font-medium">
                       <td className="p-6 border-r">
                         <div className="flex items-center gap-3">
-                           <div className="relative group">
-                              <img 
-                                src={(r.data_masuk?.foto_wajah || r.data_pulang?.foto_wajah) ? `https://backendabsen.mejatika.com/storage/${r.data_masuk?.foto_wajah || r.data_pulang?.foto_wajah}` : '/no-avatar.png'} 
-                                className="w-10 h-10 object-cover rounded-xl border border-slate-200" 
-                                alt="F" 
-                              />
-                           </div>
+                           <img 
+                             src={(r.data_masuk?.foto_wajah || r.data_pulang?.foto_wajah) ? `https://backendabsen.mejatika.com/storage/${r.data_masuk?.foto_wajah || r.data_pulang?.foto_wajah}` : '/no-avatar.png'} 
+                             className="w-10 h-10 object-cover rounded-xl border border-slate-200" 
+                             alt="F" 
+                           />
                            <div>
                               <div className="font-black text-slate-800 uppercase text-xs">{r.nama_lengkap}</div>
                               <div className="text-[9px] font-bold text-slate-400 uppercase">{r.nip || 'No NIP'}</div>
@@ -281,48 +280,43 @@ export default function AdminDashboard() {
                         </div>
                       </td>
                       <td className="p-6 text-center border-r">
-                        <div className="font-bold text-slate-700 text-xs">
+                        <div className="font-bold text-slate-700 uppercase">
                            {new Date(r.waktu_absen).toLocaleDateString('id-ID', {day:'2-digit', month:'short'})}
                         </div>
                       </td>
-
                       <td className="p-4 text-center border-r min-w-[130px]">
                         {r.data_masuk ? (
                           <div className="flex flex-col gap-1">
                             <span className="text-xs font-black text-slate-700">
                               {new Date(r.data_masuk.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
                             </span>
-                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${r.data_masuk.status.includes('Terlambat') ? 'bg-orange-100 text-orange-600' : 'bg-green-50 text-green-600 border border-green-100'}`}>
+                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${r.data_masuk.status.includes('Terlambat') ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-700'}`}>
                               {r.data_masuk.status}
                             </span>
                           </div>
                         ) : <span className="text-slate-200 text-[10px] font-black italic">BELUM SCAN</span>}
                       </td>
-
                       <td className="p-4 text-center border-r min-w-[130px]">
                         {r.data_pulang ? (
                           <div className="flex flex-col gap-1">
-                            <span className="text-xs font-black text-blue-600">
+                            <span className="text-xs font-black text-blue-700">
                               {new Date(r.data_pulang.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
                             </span>
-                            <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100">
+                            <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-blue-100 text-blue-700">
                               {r.data_pulang.status}
                             </span>
                           </div>
                         ) : <span className="text-slate-200 text-[10px] font-black italic">BELUM SCAN</span>}
                       </td>
-
                       <td className="p-6 text-center">
-                        <div className="flex flex-col items-center gap-2">
-                           <div className={`text-[9px] font-bold uppercase leading-tight max-w-[150px] ${(r.data_masuk?.keterangan_lokasi?.includes('luar') || r.data_pulang?.keterangan_lokasi?.includes('luar')) ? 'text-red-500' : 'text-slate-400'}`}>
+                           <div className={`text-[9px] font-bold uppercase leading-tight ${(r.data_masuk?.keterangan_lokasi?.includes('luar') || r.data_pulang?.keterangan_lokasi?.includes('luar')) ? 'text-red-500' : 'text-slate-400'}`}>
                               {r.data_masuk?.keterangan_lokasi || r.data_pulang?.keterangan_lokasi || '-'}
                            </div>
                            <a 
                              href={`https://www.google.com/maps?q=${r.data_masuk?.latitude || r.data_pulang?.latitude},${r.data_masuk?.longitude || r.data_pulang?.longitude}`} 
                              target="_blank" 
-                             className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-lg hover:bg-red-600 hover:text-white transition"
+                             className="inline-block mt-2 w-7 h-7 leading-7 bg-slate-100 rounded-lg text-sm hover:bg-red-600 hover:text-white transition"
                            >📍</a>
-                        </div>
                       </td>
                     </tr>
                   )) : (
@@ -357,24 +351,24 @@ export default function AdminDashboard() {
                         <div className="font-black text-slate-800 uppercase text-xs">{i.nama_lengkap}</div>
                         <div className="text-[9px] text-slate-400 font-mono italic">{new Date(i.created_at).toLocaleDateString()}</div>
                       </td>
-                      <td className="p-6">
-                        <span className="text-[9px] font-black px-2 py-0.5 bg-blue-100 text-blue-600 rounded uppercase mb-1 inline-block">{i.jenis}</span>
-                        <div className="text-xs text-slate-500 font-medium italic">"{i.keterangan}"</div>
+                      <td className="p-6 text-xs">
+                        <span className="font-black px-2 py-0.5 bg-blue-100 text-blue-600 rounded uppercase mb-1 inline-block">{i.jenis}</span>
+                        <div className="text-slate-500 font-medium italic">"{i.keterangan}"</div>
                       </td>
                       <td className="p-6 text-center">
                         {i.foto_bukti ? (
                            <button onClick={() => window.open(`https://backendabsen.mejatika.com/storage/${i.foto_bukti}`)} className="text-[10px] font-black text-red-600 hover:underline">LIHAT BUKTI</button>
                         ) : <span className="text-slate-300">-</span>}
                       </td>
-                      <td className="p-6">
+                      <td className="p-6 text-center">
                         <div className="flex justify-center gap-2">
                           {i.status === "Pending" ? (
                             <>
-                              <button onClick={() => updateStatusIzin(i.id, "Disetujui")} className="bg-green-500 text-white px-4 py-2 rounded-xl text-[9px] font-black hover:shadow-lg hover:shadow-green-100 transition uppercase">Setuju</button>
-                              <button onClick={() => updateStatusIzin(i.id, "Ditolak")} className="bg-red-500 text-white px-4 py-2 rounded-xl text-[9px] font-black hover:shadow-lg hover:shadow-red-100 transition uppercase">Tolak</button>
+                              <button onClick={() => updateStatusIzin(i.id, "Disetujui")} className="bg-green-600 text-white px-3 py-1.5 rounded-xl text-[9px] font-black hover:bg-green-700 transition uppercase">Setuju</button>
+                              <button onClick={() => updateStatusIzin(i.id, "Ditolak")} className="bg-red-600 text-white px-3 py-1.5 rounded-xl text-[9px] font-black hover:bg-red-700 transition uppercase">Tolak</button>
                             </>
                           ) : (
-                            <span className={`text-[10px] font-black px-4 py-2 rounded-full border uppercase ${i.status === 'Disetujui' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
+                            <span className={`text-[9px] font-black px-4 py-2 rounded-full border uppercase ${i.status === 'Disetujui' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
                                {i.status}
                             </span>
                           )}
@@ -382,7 +376,7 @@ export default function AdminDashboard() {
                       </td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={4} className="p-10 text-center font-bold text-slate-300 uppercase text-xs">Tidak ada antrian izin</td></tr>
+                    <tr><td colSpan={4} className="p-10 text-center font-bold text-slate-300 uppercase text-xs tracking-widest">Tidak ada antrian izin</td></tr>
                   )}
                 </tbody>
               </table>
@@ -400,7 +394,7 @@ export default function AdminDashboard() {
               </div>
               <button 
                 onClick={() => router.push('/admin/setting')}
-                className="bg-red-600 text-white px-10 py-4 rounded-[20px] font-black text-xs tracking-widest hover:bg-red-700 transition-all shadow-xl shadow-red-100 active:scale-95"
+                className="bg-red-600 text-white px-10 py-4 rounded-[20px] font-black text-xs tracking-widest hover:bg-red-700 transition-all shadow-xl shadow-red-100"
               >
                 BUKA PANEL PENGATURAN
               </button>
