@@ -28,22 +28,18 @@ function DashboardContent() {
         if (!token) { router.push("/"); return; }
       }
 
-      // 1. Cek Status & Profil Guru
       const resStatus = await fetch(`${API_URL}/cek-status-absen/${guruIdFromUrl}`);
       const statusJson = await resStatus.json();
 
       if (statusJson.success) {
         setProfile({ nama_lengkap: statusJson.nama || "Guru" });
 
-        // 2. Ambil Rekap Absensi
         const resRekap = await fetch(`${API_URL}/admin/rekap-absensi`);
         const rekapJson = await resRekap.json();
         const allData = Array.isArray(rekapJson) ? rekapJson : (rekapJson.data || []);
         
-        // Filter data berdasarkan ID guru yang login
         const rawData = allData.filter((item: any) => String(item.guru_id) === String(guruIdFromUrl));
 
-        // Grouping data berdasarkan Tanggal (agar Masuk & Pulang di baris yang sama)
         const grouped = rawData.reduce((acc: any, curr: any) => {
           const dateKey = new Date(curr.waktu_absen).toLocaleDateString('en-CA'); 
           if (!acc[dateKey]) {
@@ -52,20 +48,27 @@ function DashboardContent() {
               masuk: null, pulang: null,
               statusMasuk: "-", statusPulang: "-",
               lokasiMasuk: "-", lokasiPulang: "-",
-              rawDate: new Date(curr.waktu_absen)
+              rawDate: new Date(curr.waktu_absen),
+              isSpecialStatus: false 
             };
           }
           
           const st = curr.status.toLowerCase();
           const lokasiTxt = curr.keterangan_lokasi || "Lokasi tidak tercatat";
+          const specialKeywords = ['sakit', 'izin', 'cuti', 'dinas'];
+          const isSpecial = specialKeywords.some(key => st.includes(key));
 
-          if (st.includes('masuk') || st.includes('terlambat')) {
+          if (isSpecial) {
+            acc[dateKey].statusMasuk = curr.status.toUpperCase();
+            acc[dateKey].lokasiMasuk = lokasiTxt;
+            acc[dateKey].isSpecialStatus = true;
+          } else if (st.includes('masuk') || st.includes('terlambat')) {
             acc[dateKey].masuk = curr;
-            acc[dateKey].statusMasuk = curr.status.toUpperCase(); // Ambil asli dari DB
+            acc[dateKey].statusMasuk = curr.status.toUpperCase();
             acc[dateKey].lokasiMasuk = lokasiTxt;
           } else if (st.includes('pulang')) {
             acc[dateKey].pulang = curr;
-            acc[dateKey].statusPulang = curr.status.toUpperCase(); // Ambil asli dari DB (Bukan "HADIR")
+            acc[dateKey].statusPulang = curr.status.toUpperCase();
             acc[dateKey].lokasiPulang = lokasiTxt;
           }
           return acc;
@@ -73,7 +76,6 @@ function DashboardContent() {
 
         setMyRekap(Object.values(grouped).sort((a: any, b: any) => b.rawDate - a.rawDate));
 
-        // 3. Ambil Daftar Izin
         const resIzin = await fetch(`${API_URL}/admin/daftar-izin`);
         const izinJson = await resIzin.json();
         const allIzin = Array.isArray(izinJson) ? izinJson : (izinJson.data || []);
@@ -94,8 +96,10 @@ function DashboardContent() {
     formData.append("guru_id", guruIdFromUrl || "");
     formData.append("jenis", formIzin.jenis);
     formData.append("keterangan", formIzin.keterangan);
-    if (formIzin.tanggal_mulai) formData.append("tanggal_mulai", formIzin.tanggal_mulai);
-    if (formIzin.tanggal_selesai) formData.append("tanggal_selesai", formIzin.tanggal_selesai);
+    if (formIzin.jenis !== "Sakit") {
+        if (formIzin.tanggal_mulai) formData.append("tanggal_mulai", formIzin.tanggal_mulai);
+        if (formIzin.tanggal_selesai) formData.append("tanggal_selesai", formIzin.tanggal_selesai);
+    }
     if (formIzin.file) formData.append("foto_bukti", formIzin.file);
 
     Swal.fire({ title: "Mengirim...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
@@ -155,39 +159,36 @@ function DashboardContent() {
                   {myRekap.length > 0 ? myRekap.map((r, i) => (
                     <tr key={i} className="hover:bg-slate-50/80 transition">
                       <td className="p-5 text-left font-black text-slate-700 border-r border-slate-100">{r.tanggalFormat}</td>
-                      <td className="p-5 text-slate-600 border-r border-slate-50">{r.masuk ? new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
-                      <td className="p-5 text-slate-600 border-r border-slate-100">{r.pulang ? new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
+                      <td className="p-5 text-slate-600 border-r border-slate-50">{(r.masuk && !r.isSpecialStatus) ? new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
+                      <td className="p-5 text-slate-600 border-r border-slate-100">{(r.pulang && !r.isSpecialStatus) ? new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
                       
-                      {/* STATUS MASUK */}
                       <td className="p-5 border-r border-slate-50">
                         <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase ${r.statusMasuk.includes('TERLAMBAT') ? 'bg-orange-100 text-orange-600' : r.statusMasuk === '-' ? 'text-slate-200' : 'bg-green-100 text-green-600'}`}>
                           {r.statusMasuk}
                         </span>
                       </td>
 
-                      {/* STATUS PULANG */}
                       <td className="p-5 border-r border-slate-100">
                         <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase ${r.statusPulang === '-' ? 'text-slate-200' : 'bg-blue-100 text-blue-600'}`}>
                           {r.statusPulang}
                         </span>
                       </td>
 
-                      {/* LOKASI DARI TABEL MEMANG */}
                       <td className="p-5 text-left min-w-[250px]">
                         <div className="flex flex-col gap-2">
-                          {r.masuk && (
-                            <div className="bg-slate-100/50 p-2 rounded-xl border-l-4 border-red-500">
-                              <p className="text-[7px] text-slate-400 uppercase font-black mb-1">Lokasi Masuk:</p>
+                          {(r.masuk || r.isSpecialStatus) && (
+                            <div className={`p-2 rounded-xl border-l-4 ${r.isSpecialStatus ? 'bg-purple-50 border-purple-500' : 'bg-slate-100/50 border-red-500'}`}>
+                              <p className="text-[7px] text-slate-400 uppercase font-black mb-1">{r.isSpecialStatus ? 'Keterangan:' : 'Lokasi Masuk:'}</p>
                               <p className="text-[9px] leading-tight text-slate-600 italic">"{r.lokasiMasuk}"</p>
                             </div>
                           )}
-                          {r.pulang && (
+                          {r.pulang && !r.isSpecialStatus && (
                             <div className="bg-blue-50/50 p-2 rounded-xl border-l-4 border-blue-500">
                               <p className="text-[7px] text-blue-400 uppercase font-black mb-1">Lokasi Pulang:</p>
                               <p className="text-[9px] leading-tight text-blue-600 italic">"{r.lokasiPulang}"</p>
                             </div>
                           )}
-                          {!r.masuk && !r.pulang && <span className="text-slate-300">-</span>}
+                          {!r.masuk && !r.pulang && !r.isSpecialStatus && <span className="text-slate-300">-</span>}
                         </div>
                       </td>
                     </tr>
@@ -201,10 +202,9 @@ function DashboardContent() {
             </div>
           </div>
         ) : (
-          /* TAB PENGAUAN IZIN */
+          /* TAB PENGAJUAN IZIN */
           <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-bottom duration-500">
-             {/* FORM SEBELAH KIRI */}
-             <div className="bg-white/90 p-8 rounded-[32px] shadow-xl border border-slate-100">
+              <div className="bg-white/90 p-8 rounded-[32px] shadow-xl border border-slate-100">
                 <h2 className="text-[11px] font-black uppercase text-slate-800 mb-6 tracking-widest border-l-4 border-red-600 pl-4">Formulir Pengajuan</h2>
                 <form onSubmit={handleIzinSubmit} className="space-y-4">
                   <div className="space-y-1">
@@ -216,19 +216,24 @@ function DashboardContent() {
                       <option value="Dinas Luar">Dinas Luar</option>
                     </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Dari Tanggal</label>
-                      <input type="date" required value={formIzin.tanggal_mulai} onChange={e => setFormIzin({...formIzin, tanggal_mulai: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold ring-1 ring-slate-100"/>
+
+                  {/* LOGIKA TANGGAL: Sembunyikan jika Sakit, Tampilkan & Wajib jika selain Sakit */}
+                  {formIzin.jenis !== "Sakit" && (
+                    <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Dari Tanggal <span className="text-red-500">*</span></label>
+                        <input type="date" required value={formIzin.tanggal_mulai} onChange={e => setFormIzin({...formIzin, tanggal_mulai: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold ring-1 ring-slate-100 outline-none focus:ring-2 focus:ring-red-600"/>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Sampai Tanggal <span className="text-red-500">*</span></label>
+                        <input type="date" required value={formIzin.tanggal_selesai} onChange={e => setFormIzin({...formIzin, tanggal_selesai: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold ring-1 ring-slate-100 outline-none focus:ring-2 focus:ring-red-600"/>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Sampai Tanggal</label>
-                      <input type="date" required value={formIzin.tanggal_selesai} onChange={e => setFormIzin({...formIzin, tanggal_selesai: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold ring-1 ring-slate-100"/>
-                    </div>
-                  </div>
+                  )}
+
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Alasan / Keterangan</label>
-                    <textarea required value={formIzin.keterangan} onChange={e => setFormIzin({...formIzin, keterangan: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold h-24 outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-red-600" placeholder="Tuliskan alasan lengkap..."/>
+                    <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Alasan / Keterangan <span className="text-red-500">*</span></label>
+                    <textarea required value={formIzin.keterangan} onChange={e => setFormIzin({...formIzin, keterangan: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold h-24 outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-red-600" placeholder={formIzin.jenis === "Sakit" ? "Jelaskan kondisi sakit Anda..." : "Tuliskan alasan lengkap..."}/>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Foto Bukti (Dokumen/Surat)</label>
@@ -236,10 +241,9 @@ function DashboardContent() {
                   </div>
                   <button type="submit" className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-red-700 transition active:scale-95">Kirim Ke Admin</button>
                 </form>
-             </div>
+              </div>
 
-             {/* RIWAYAT SEBELAH KANAN */}
-             <div className="bg-white/90 p-8 rounded-[32px] shadow-xl border border-slate-100 h-fit">
+              <div className="bg-white/90 p-8 rounded-[32px] shadow-xl border border-slate-100 h-fit">
                 <h2 className="text-[11px] font-black uppercase text-slate-800 mb-6 tracking-widest border-l-4 border-slate-800 pl-4">Status Pengajuan Anda</h2>
                 <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
                   {myIzin.length > 0 ? myIzin.map((izin: any, idx: number) => (
@@ -257,7 +261,7 @@ function DashboardContent() {
                     <div className="py-20 text-center text-slate-300 font-bold text-[9px] uppercase italic tracking-widest">Belum ada riwayat pengajuan</div>
                   )}
                 </div>
-             </div>
+              </div>
           </div>
         )}
       </div>
