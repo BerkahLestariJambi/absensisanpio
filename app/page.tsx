@@ -28,10 +28,11 @@ export default function HomeAbsensi() {
     aspectRatio: 9 / 16,
   };
 
-  // --- 1. INITIAL LOAD & MODEL SETUP ---
+  // --- 1. INITIAL LOAD DENGAN OPTIMASI CACHING ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
+        // Ambil data paralel agar lebih cepat
         const [configRes, gurus] = await Promise.all([
           api.getSettings(),
           api.getGuruReferensi(),
@@ -40,6 +41,7 @@ export default function HomeAbsensi() {
         if (configRes.success) setConfig(configRes.data);
 
         const MODEL_URL = "/models";
+        // Load model secara paralel
         await Promise.all([
           faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
@@ -50,13 +52,30 @@ export default function HomeAbsensi() {
         const labeledDescriptors = await Promise.all(
           gurus.map(async (guru) => {
             if (!guru.foto_referensi) return null;
+
+            // STRATEGI CACHING: Cek apakah deskriptor sudah ada di memori browser
+            const cacheKey = `face_desc_${guru.id}_${guru.foto_referensi.replace(/\//g, '_')}`;
+            const cachedDescriptor = localStorage.getItem(cacheKey);
+
+            if (cachedDescriptor) {
+              // Jika ada cache, konversi kembali ke Float32Array (Sangat Cepat!)
+              const descArray = new Float32Array(JSON.parse(cachedDescriptor));
+              return new faceapi.LabeledFaceDescriptors(guru.id.toString(), [descArray]);
+            }
+
             try {
               const imgUrl = `https://projeckkelasxi.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
               const fullDesc = await faceapi.detectSingleFace(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
                 .withFaceLandmarks()
                 .withFaceDescriptor();
-              return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
+
+              if (fullDesc) {
+                // Simpan hasil ekstraksi ke localStorage untuk penggunaan berikutnya
+                localStorage.setItem(cacheKey, JSON.stringify(Array.from(fullDesc.descriptor)));
+                return new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]);
+              }
+              return null;
             } catch (e) { return null; }
           })
         );
@@ -154,7 +173,6 @@ export default function HomeAbsensi() {
         return;
       }
 
-      // Hitung waktu untuk logika Pulang Cepat
       const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
         timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
       }).format(new Date());
@@ -170,7 +188,6 @@ export default function HomeAbsensi() {
       const menitPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
       const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
-      // Jika sudah pernah masuk (jumlah_absen > 0) dan sekarang waktu pulang cepat
       if ((checkData.jumlah_absen || 0) > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
         const { value: alasan } = await Swal.fire({
           title: "PULANG CEPAT",
