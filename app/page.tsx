@@ -4,7 +4,7 @@ import Webcam from "react-webcam";
 import * as faceapi from "face-api.js";
 import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api } from "@/lib/api"; // <-- Import library API kita
 
 export default function HomeAbsensi() {
   const [view, setView] = useState("menu");
@@ -16,76 +16,51 @@ export default function HomeAbsensi() {
   const [faceMatcher, setFaceMatcher] = useState(null);
   const [config, setConfig] = useState(null);
   const [scanStatus, setScanStatus] = useState("searching");
-
+  
   const isLocked = useRef(false);
   const scanIntervalRef = useRef(null);
   const router = useRouter();
+  const videoConstraints = { width: 320, height: 480, facingMode: "user" };
 
-  const videoConstraints = {
-    width: 720,
-    height: 1280,
-    facingMode: "user",
-    aspectRatio: 9 / 16,
-  };
-
-  // --- 1. INITIAL LOAD DENGAN OPTIMASI CACHING ---
+  // --- 1. INITIAL LOAD (MENGGUNAKAN LIBRARY) ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
-        // Ambil data paralel agar lebih cepat
+        // Panggil Settings dan Referensi Guru melalui Library
         const [configRes, gurus] = await Promise.all([
           api.getSettings(),
-          api.getGuruReferensi(),
+          api.getGuruReferensi()
         ]);
 
         if (configRes.success) setConfig(configRes.data);
 
+        // Load AI Models
         const MODEL_URL = "/models";
-        // Load model secara paralel
         await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
           faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
         ]);
 
+        // Mapping Descriptors
         const labeledDescriptors = await Promise.all(
           gurus.map(async (guru) => {
             if (!guru.foto_referensi) return null;
-
-            // STRATEGI CACHING: Cek apakah deskriptor sudah ada di memori browser
-            const cacheKey = `face_desc_${guru.id}_${guru.foto_referensi.replace(/\//g, '_')}`;
-            const cachedDescriptor = localStorage.getItem(cacheKey);
-
-            if (cachedDescriptor) {
-              // Jika ada cache, konversi kembali ke Float32Array (Sangat Cepat!)
-              const descArray = new Float32Array(JSON.parse(cachedDescriptor));
-              return new faceapi.LabeledFaceDescriptors(guru.id.toString(), [descArray]);
-            }
-
             try {
               const imgUrl = `https://projeckkelasxi.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
-              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
-                .withFaceLandmarks()
-                .withFaceDescriptor();
-
-              if (fullDesc) {
-                // Simpan hasil ekstraksi ke localStorage untuk penggunaan berikutnya
-                localStorage.setItem(cacheKey, JSON.stringify(Array.from(fullDesc.descriptor)));
-                return new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]);
-              }
-              return null;
+              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+              return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
             } catch (e) { return null; }
           })
         );
 
-        const validDescriptors = labeledDescriptors.filter((d) => d !== null);
+        const validDescriptors = labeledDescriptors.filter(d => d !== null);
         if (validDescriptors.length > 0) {
-          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.45));
+          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
           if (view === "menu") setPesan("⚡ Scanner Siap");
         }
-      } catch (err) {
+      } catch (err) { 
         setPesan("Gagal memuat sistem");
         console.error(err);
       }
@@ -95,16 +70,16 @@ export default function HomeAbsensi() {
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition(
         (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => console.error("GPS Error:", err),
+        (err) => console.error("GPS Error:", err), 
         { enableHighAccuracy: true }
       );
     }
   }, []);
 
-  // --- 2. ENGINE SCANNER ---
+  // --- 2. ENGINE SCANNER (Tetap Sama) ---
   useEffect(() => {
     if (view === "absen" && !isProcessing) {
-      isLocked.current = false;
+      isLocked.current = false; 
       scanIntervalRef.current = setInterval(async () => {
         if (isProcessing || isLocked.current) return;
 
@@ -114,7 +89,7 @@ export default function HomeAbsensi() {
           const displaySize = { width: video.videoWidth, height: video.videoHeight };
           faceapi.matchDimensions(canvas, displaySize);
 
-          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
             .withFaceLandmarks()
             .withFaceDescriptor();
 
@@ -123,72 +98,77 @@ export default function HomeAbsensi() {
 
           if (detection) {
             const { width } = detection.detection.box;
-            if (width >= 120 && width <= 450) {
+            if (width >= 80 && width <= 280) {
               setScanStatus("locked");
               setPesan("Wajah Terkunci... Mohon Diam");
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
                 if (match.label !== "unknown") {
-                  isLocked.current = true;
+                  isLocked.current = true; 
                   setIsProcessing(true);
                   setScanStatus("success");
-                  clearInterval(scanIntervalRef.current);
-                  setPesan("Verifikasi Berhasil...");
+                  clearInterval(scanIntervalRef.current); 
+                  setPesan("Sinkronisasi Biometrik...");
                   handleRecognitionSuccess(match.label);
                 }
               }
-            } else {
+            } else { 
               setScanStatus("searching");
-              setPesan(width < 120 ? "Dekatkan Wajah..." : "Terlalu Dekat!");
+              setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!"); 
             }
-          } else {
+          } else { 
             setScanStatus("searching");
-            setPesan("Mencari Wajah...");
+            setPesan("Mencari Wajah..."); 
           }
         }
-      }, 200);
+      }, 150); 
     }
     return () => clearInterval(scanIntervalRef.current);
   }, [view, faceMatcher, isProcessing]);
 
-  // --- 3. LOGIKA RECOGNITION SUCCESS ---
+  // --- 3. LOGIKA RECOGNITION (MENGGUNAKAN LIBRARY) ---
   const handleRecognitionSuccess = async (guruId) => {
     try {
       const screenshot = webcamRef.current?.getScreenshot();
+      
+      // MENGGUNAKAN LIBRARY: Cek status absen
       const checkData = await api.checkAbsenStatus(guruId);
 
       if (checkData.sudah_lengkap) {
-        await Swal.fire({
-          title: "SUDAH LENGKAP",
-          html: `Halo <b>${checkData.nama}</b>,<br/>Anda sudah absen masuk & pulang hari ini.`,
-          icon: "info",
-          showCancelButton: true,
-          confirmButtonText: "Ke Dashboard Guru",
-          cancelButtonText: "Kembali",
-          confirmButtonColor: "#1e293b",
-        }).then((result) => {
-          if (result.isConfirmed) router.push(`/guru?id=${guruId}`);
-          else resetScanner();
-        });
-        return;
+          await Swal.fire({
+            title: "SUDAH LENGKAP",
+            html: `Halo <b>${checkData.nama}</b>,<br/>Anda sudah absen masuk & pulang hari ini.`,
+            icon: "info",
+            showCancelButton: true,
+            confirmButtonText: "Ke Dashboard Guru",
+            cancelButtonText: "Kembali",
+            confirmButtonColor: "#1e293b",
+            allowOutsideClick: false
+          }).then((result) => {
+            if (result.isConfirmed) router.push(`/guru?id=${guruId}`);
+            else resetScanner();
+          });
+          return;
       }
 
+      // Logika Waktu WITA
+      const jumlahAbsen = checkData.jumlah_absen || 0;
       const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
-        timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
+          timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
       }).format(new Date());
       const [h, m] = jamSekarangWita.split(/[.:]/).map(Number);
       const totalMenitSekarang = h * 60 + m;
 
       const parseConfig = (t) => {
-        if (!t) return 0;
-        const [hh, mm] = t.split(/[.:]/).map(Number);
-        return hh * 60 + mm;
-      };
+          if(!t) return 0;
+          const [hh, mm] = t.split(/[.:]/).map(Number);
+          return hh * 60 + mm;
+      }
 
       const menitPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
       const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
-      if ((checkData.jumlah_absen || 0) > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
+      if (jumlahAbsen > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
         const { value: alasan } = await Swal.fire({
           title: "PULANG CEPAT",
           text: "Pilih alasan pulang mendahului jadwal:",
@@ -198,6 +178,9 @@ export default function HomeAbsensi() {
           inputPlaceholder: "-- Pilih Alasan --",
           showCancelButton: true,
           confirmButtonText: "Kirim",
+          cancelButtonText: "Batal",
+          confirmButtonColor: "#dc2626",
+          allowOutsideClick: false,
           inputValidator: (value) => { if (!value) return 'Alasan wajib dipilih!'; }
         });
 
@@ -206,21 +189,22 @@ export default function HomeAbsensi() {
       } else {
         sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot);
       }
-    } catch (e) {
+    } catch (e) { 
       console.error(e);
-      resetScanner();
+      resetScanner(); 
     }
   };
 
-  // --- 4. KIRIM DATA KE API ---
+  // --- 4. KIRIM KE SERVER (MENGGUNAKAN LIBRARY) ---
   const sendToServer = async (guruId, lat, lng, image, statusTambahan) => {
     try {
-      if (!lat || !lng) {
-        await Swal.fire("GPS Belum Siap", "Mohon tunggu sinyal lokasi.", "warning");
-        resetScanner();
-        return;
+      if (lat === 0 || lng === 0) {
+          await Swal.fire("GPS Belum Siap", "Mohon tunggu sinyal lokasi.", "warning");
+          resetScanner();
+          return;
       }
 
+      // MENGGUNAKAN LIBRARY: Submit Absensi
       const data = await api.submitAbsensi({
         guru_id: guruId,
         lat,
@@ -228,10 +212,10 @@ export default function HomeAbsensi() {
         status_tambahan: statusTambahan,
         image: image
       });
-
+      
       await Swal.fire({
         title: "BERHASIL",
-        text: data.message,
+        html: `<div class="text-sm"><b>${data.message}</b><br/>${new Date().toLocaleTimeString('id-ID')}</div>`,
         icon: "success",
         timer: 2000,
         showConfirmButton: false
@@ -245,13 +229,15 @@ export default function HomeAbsensi() {
         confirmButtonText: "Ya, Dashboard",
         cancelButtonText: "Selesai",
         confirmButtonColor: "#1e293b",
+        allowOutsideClick: false
       });
 
       if (isConfirmed) router.push(`/guru?id=${guruId}`);
       else resetScanner();
 
     } catch (err) {
-      Swal.fire("GAGAL", err.message || "Terjadi kesalahan server", "error");
+      // Library kita melempar error dengan properti .message
+      Swal.fire("GAGAL", err.message || "Gagal menghubungi server.", "error");
       resetScanner();
     }
   };
@@ -264,7 +250,7 @@ export default function HomeAbsensi() {
     setPesan("⚡ Scanner Siap");
   };
 
-  // --- 5. RENDER UI ---
+  // --- RENDER UI (Sama dengan sebelumnya) ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
