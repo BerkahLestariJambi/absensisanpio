@@ -19,6 +19,7 @@ export default function HomeAbsensi() {
   const isLocked = useRef(false);
   const scanIntervalRef = useRef<any>(null);
   const faceBuffer = useRef(0);
+  const unknownBuffer = useRef(0); // Menghitung berapa kali wajah tidak dikenal terdeteksi
 
   const router = useRouter();
   const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
@@ -31,7 +32,6 @@ export default function HomeAbsensi() {
       try {
         const MODEL_URL = "/models";
         
-        // Memuat model dan config secara paralel untuk kecepatan
         const [configRes, _models] = await Promise.all([
           fetch("https://backendabsen.mejatika.com/api/setting-app").then(res => res.json()),
           Promise.all([
@@ -43,7 +43,6 @@ export default function HomeAbsensi() {
 
         if (isMounted && configRes.success) setConfig(configRes.data);
 
-        // Memuat data referensi guru
         const refRes = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
         const gurus = await refRes.json();
 
@@ -53,7 +52,6 @@ export default function HomeAbsensi() {
             try {
               const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
-              // Gunakan TinyFaceDetector untuk ekstraksi referensi agar konsisten
               const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
                 .withFaceLandmarks()
                 .withFaceDescriptor();
@@ -65,8 +63,8 @@ export default function HomeAbsensi() {
         const validDescriptors = labeledDescriptors.filter(d => d !== null) as faceapi.LabeledFaceDescriptors[];
         
         if (isMounted && validDescriptors.length > 0) {
-          // Threshold 0.6 untuk TinyFaceDetector (Cukup Toleran namun Aman)
-          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.48));
+          // Perketat threshold ke 0.45 agar tidak mudah tertukar dengan orang lain
+          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.45));
           if (view === "menu") setPesan("⚡ Scanner Siap");
         }
       } catch (err) { 
@@ -87,7 +85,6 @@ export default function HomeAbsensi() {
         navigator.geolocation.clearWatch(watchId);
       };
     }
-    
     return () => { isMounted = false; };
   }, []);
 
@@ -96,6 +93,7 @@ export default function HomeAbsensi() {
     if (view === "absen" && !isProcessing) {
       isLocked.current = false; 
       faceBuffer.current = 0;
+      unknownBuffer.current = 0;
 
       scanIntervalRef.current = setInterval(async () => {
         if (isProcessing || isLocked.current) return;
@@ -119,17 +117,16 @@ export default function HomeAbsensi() {
           if (detection) {
             const { width } = detection.detection.box;
             
-            // Filter jarak wajah agar tidak terlalu jauh/dekat
             if (width >= 80 && width <= 280) {
               setScanStatus("locked");
-              setPesan("Wajah Terkunci... Mohon Diam");
 
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
                 
                 if (match.label !== "unknown") {
-                  // Buffer logic: Wajah harus stabil selama 2-3 frame
+                  unknownBuffer.current = 0; // Reset jika wajah dikenal
                   faceBuffer.current++;
+                  setPesan("Wajah Terkunci... Mohon Diam");
                   
                   if (faceBuffer.current >= 2) {
                     isLocked.current = true; 
@@ -140,17 +137,37 @@ export default function HomeAbsensi() {
                     handleRecognitionSuccess(match.label);
                   }
                 } else {
+                  // LOGIKA: Wajah tidak cocok
                   faceBuffer.current = 0;
+                  unknownBuffer.current++;
                   setPesan("Mencocokkan...");
+
+                  // Jika 10 frame berturut-turut tidak dikenal (sekitar 1.5 detik)
+                  if (unknownBuffer.current >= 10) {
+                    isLocked.current = true;
+                    clearInterval(scanIntervalRef.current);
+                    
+                    Swal.fire({
+                      title: "WAJAH TIDAK COCOK",
+                      text: "Wajah Anda tidak terdaftar atau tidak dikenali oleh sistem.",
+                      icon: "error",
+                      confirmButtonText: "Coba Lagi",
+                      confirmButtonColor: "#dc2626",
+                    }).then(() => {
+                      resetScanner();
+                    });
+                  }
                 }
               }
             } else { 
               faceBuffer.current = 0;
+              unknownBuffer.current = 0;
               setScanStatus("searching");
               setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!"); 
             }
           } else { 
             faceBuffer.current = 0;
+            unknownBuffer.current = 0;
             setScanStatus("searching");
             setPesan("Mencari Wajah..."); 
           }
@@ -228,12 +245,12 @@ export default function HomeAbsensi() {
     isLocked.current = false;
     setIsProcessing(false);
     faceBuffer.current = 0;
+    unknownBuffer.current = 0;
     setScanStatus("searching");
     setView("menu");
     setPesan("⚡ Scanner Siap");
   };
 
-  // --- 4. KIRIM KE SERVER ---
   const sendToServer = async (guruId: string, lat: number, lng: number, image?: string | null, statusTambahan?: string) => {
     try {
       if (lat === 0 || lng === 0) {
