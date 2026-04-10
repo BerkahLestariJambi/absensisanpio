@@ -66,7 +66,7 @@ export default function HomeAbsensi() {
         
         if (isMounted && validDescriptors.length > 0) {
           // Threshold 0.6 untuk TinyFaceDetector (Cukup Toleran namun Aman)
-          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
+          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.3));
           if (view === "menu") setPesan("⚡ Scanner Siap");
         }
       } catch (err) { 
