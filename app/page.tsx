@@ -18,38 +18,43 @@ export default function HomeAbsensi() {
   
   const isLocked = useRef(false);
   const scanIntervalRef = useRef<any>(null);
-  const faceBuffer = useRef(0); // Menghitung stabilitas deteksi
+  const faceBuffer = useRef(0);
 
   const router = useRouter();
   const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
 
   // --- 1. INITIAL LOAD (Model & Referensi) ---
   useEffect(() => {
+    let isMounted = true;
+
     const loadSistem = async () => {
       try {
-        const [configRes, refRes] = await Promise.all([
-          fetch("https://backendabsen.mejatika.com/api/setting-app"),
-          fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi")
-        ]);
-
-        const configData = await configRes.json();
-        if (configData.success) setConfig(configData.data);
-
         const MODEL_URL = "/models";
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        
+        // Memuat model dan config secara paralel untuk kecepatan
+        const [configRes, _models] = await Promise.all([
+          fetch("https://backendabsen.mejatika.com/api/setting-app").then(res => res.json()),
+          Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+            faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+          ])
         ]);
 
+        if (isMounted && configRes.success) setConfig(configRes.data);
+
+        // Memuat data referensi guru
+        const refRes = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
         const gurus = await refRes.json();
+
         const labeledDescriptors = await Promise.all(
           gurus.map(async (guru: any) => {
             if (!guru.foto_referensi) return null;
             try {
               const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
-              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+              // Gunakan TinyFaceDetector untuk ekstraksi referensi agar konsisten
+              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
                 .withFaceLandmarks()
                 .withFaceDescriptor();
               return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
@@ -58,25 +63,33 @@ export default function HomeAbsensi() {
         );
 
         const validDescriptors = labeledDescriptors.filter(d => d !== null) as faceapi.LabeledFaceDescriptors[];
-        if (validDescriptors.length > 0) {
-          // Score 0.6 untuk keseimbangan akurasi
+        
+        if (isMounted && validDescriptors.length > 0) {
+          // Threshold 0.6 untuk TinyFaceDetector (Cukup Toleran namun Aman)
           setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
           if (view === "menu") setPesan("⚡ Scanner Siap");
         }
       } catch (err) { 
-        setPesan("Gagal memuat sistem");
+        if (isMounted) setPesan("Gagal memuat sistem");
       }
     };
+
     loadSistem();
 
     if ("geolocation" in navigator) {
-      navigator.geolocation.watchPosition(
+      const watchId = navigator.geolocation.watchPosition(
         (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         (err) => console.error("GPS Error:", err), 
         { enableHighAccuracy: true }
       );
+      return () => {
+        isMounted = false;
+        navigator.geolocation.clearWatch(watchId);
+      };
     }
-  }, [view]);
+    
+    return () => { isMounted = false; };
+  }, []);
 
   // --- 2. ENGINE SCANNER ---
   useEffect(() => {
@@ -93,7 +106,10 @@ export default function HomeAbsensi() {
           const displaySize = { width: video.videoWidth, height: video.videoHeight };
           faceapi.matchDimensions(canvas, displaySize);
 
-          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+          const detection = await faceapi.detectSingleFace(
+              video, 
+              new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
+            )
             .withFaceLandmarks()
             .withFaceDescriptor();
 
@@ -102,16 +118,20 @@ export default function HomeAbsensi() {
 
           if (detection) {
             const { width } = detection.detection.box;
+            
+            // Filter jarak wajah agar tidak terlalu jauh/dekat
             if (width >= 80 && width <= 280) {
               setScanStatus("locked");
               setPesan("Wajah Terkunci... Mohon Diam");
-              
+
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
+                
                 if (match.label !== "unknown") {
-                  // Buffer agar tidak langsung submit pada deteksi pertama yang tidak stabil
+                  // Buffer logic: Wajah harus stabil selama 2-3 frame
                   faceBuffer.current++;
-                  if (faceBuffer.current >= 3) {
+                  
+                  if (faceBuffer.current >= 2) {
                     isLocked.current = true; 
                     setIsProcessing(true);
                     setScanStatus("success");
@@ -262,7 +282,6 @@ export default function HomeAbsensi() {
     }
   };
 
-  // --- RENDER VIEW MENU ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -293,7 +312,6 @@ export default function HomeAbsensi() {
     );
   }
 
-  // --- RENDER VIEW SCANNER ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden justify-center">
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
