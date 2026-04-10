@@ -18,11 +18,12 @@ export default function HomeAbsensi() {
   
   const isLocked = useRef(false);
   const scanIntervalRef = useRef<any>(null);
+  const faceBuffer = useRef(0); // Menghitung stabilitas deteksi
 
   const router = useRouter();
   const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
 
-  // --- 1. INITIAL LOAD (Optimasi Kecepatan) ---
+  // --- 1. INITIAL LOAD (Model & Referensi) ---
   useEffect(() => {
     const loadSistem = async () => {
       try {
@@ -48,7 +49,9 @@ export default function HomeAbsensi() {
             try {
               const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
               const img = await faceapi.fetchImage(imgUrl);
-              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+              const fullDesc = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+                .withFaceLandmarks()
+                .withFaceDescriptor();
               return fullDesc ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor]) : null;
             } catch (e) { return null; }
           })
@@ -56,6 +59,7 @@ export default function HomeAbsensi() {
 
         const validDescriptors = labeledDescriptors.filter(d => d !== null) as faceapi.LabeledFaceDescriptors[];
         if (validDescriptors.length > 0) {
+          // Score 0.6 untuk keseimbangan akurasi
           setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.6));
           if (view === "menu") setPesan("⚡ Scanner Siap");
         }
@@ -72,12 +76,14 @@ export default function HomeAbsensi() {
         { enableHighAccuracy: true }
       );
     }
-  }, []);
+  }, [view]);
 
   // --- 2. ENGINE SCANNER ---
   useEffect(() => {
     if (view === "absen" && !isProcessing) {
       isLocked.current = false; 
+      faceBuffer.current = 0;
+
       scanIntervalRef.current = setInterval(async () => {
         if (isProcessing || isLocked.current) return;
 
@@ -87,7 +93,7 @@ export default function HomeAbsensi() {
           const displaySize = { width: video.videoWidth, height: video.videoHeight };
           faceapi.matchDimensions(canvas, displaySize);
 
-          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
             .withFaceLandmarks()
             .withFaceDescriptor();
 
@@ -99,22 +105,32 @@ export default function HomeAbsensi() {
             if (width >= 80 && width <= 280) {
               setScanStatus("locked");
               setPesan("Wajah Terkunci... Mohon Diam");
+              
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
                 if (match.label !== "unknown") {
-                  isLocked.current = true; 
-                  setIsProcessing(true);
-                  setScanStatus("success");
-                  clearInterval(scanIntervalRef.current); 
-                  setPesan("Sinkronisasi Biometrik...");
-                  handleRecognitionSuccess(match.label);
+                  // Buffer agar tidak langsung submit pada deteksi pertama yang tidak stabil
+                  faceBuffer.current++;
+                  if (faceBuffer.current >= 3) {
+                    isLocked.current = true; 
+                    setIsProcessing(true);
+                    setScanStatus("success");
+                    clearInterval(scanIntervalRef.current); 
+                    setPesan("Sinkronisasi Biometrik...");
+                    handleRecognitionSuccess(match.label);
+                  }
+                } else {
+                  faceBuffer.current = 0;
+                  setPesan("Mencocokkan...");
                 }
               }
             } else { 
+              faceBuffer.current = 0;
               setScanStatus("searching");
               setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!"); 
             }
           } else { 
+            faceBuffer.current = 0;
             setScanStatus("searching");
             setPesan("Mencari Wajah..."); 
           }
@@ -131,7 +147,6 @@ export default function HomeAbsensi() {
       const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
       const checkData = await checkRes.json();
 
-      // CEK STATUS LENGKAP (Sudah Masuk & Pulang)
       if (checkData.sudah_lengkap) {
           await Swal.fire({
             title: "SUDAH LENGKAP",
@@ -143,13 +158,12 @@ export default function HomeAbsensi() {
             confirmButtonColor: "#1e293b",
             allowOutsideClick: false
           }).then((result) => {
-            if (result.isConfirmed) router.push(`/guru?id=${guruId}`); // Langsung akses pakai ID
+            if (result.isConfirmed) router.push(`/guru?id=${guruId}`);
             else resetScanner();
           });
           return;
       }
 
-      // LOGIKA PULANG CEPAT
       const jumlahAbsen = checkData.jumlah_absen || 0;
       const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
           timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
@@ -193,6 +207,7 @@ export default function HomeAbsensi() {
   const resetScanner = () => {
     isLocked.current = false;
     setIsProcessing(false);
+    faceBuffer.current = 0;
     setScanStatus("searching");
     setView("menu");
     setPesan("⚡ Scanner Siap");
@@ -235,7 +250,7 @@ export default function HomeAbsensi() {
           allowOutsideClick: false
         });
 
-        if (isConfirmed) router.push(`/guru?id=${guruId}`); // Langsung akses pakai ID
+        if (isConfirmed) router.push(`/guru?id=${guruId}`);
         else resetScanner();
       } else {
         await Swal.fire("GAGAL", data.message, "error");
@@ -247,6 +262,7 @@ export default function HomeAbsensi() {
     }
   };
 
+  // --- RENDER VIEW MENU ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -271,13 +287,13 @@ export default function HomeAbsensi() {
             <span className="text-2xl">👤</span> {faceMatcher ? (coords ? "ABSEN SEKARANG" : "MENUNGGU GPS...") : "LOADING AI..."}
           </button>
           
-          {/* TOMBOL LOGIN KHUSUS ADMIN/KEPSEK */}
           <button onClick={() => router.push("/admin/login")} className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors">🔐 LOGIN ADMIN / KEPSEK</button>
         </div>
       </div>
     );
   }
 
+  // --- RENDER VIEW SCANNER ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center p-4 relative bg-batik overflow-hidden justify-center">
       <div className="relative w-full max-w-md aspect-[3/4] rounded-[40px] overflow-hidden border-4 border-white bg-slate-900 shadow-2xl">
