@@ -371,4 +371,25 @@ function DashboardContent() {
                         </span>
                         <p className="text-[8px] text-slate-400 font-bold">{new Date(izin.created_at).toLocaleDateString('id-ID')}</p>
                       </div>
-                      <p className="text-
+                      <p className="text-[11px] font-black text-slate-800 uppercase mb-1">{izin.jenis}</p>
+                      <p className="text-[10px] text-slate-500 italic leading-relaxed">"{izin.keterangan}"</p>
+                    </div>
+                  ))}
+                  {myIzin.length === 0 && <div className="py-20 text-center text-slate-300 font-bold text-[9px] uppercase italic tracking-widest">Belum ada riwayat pengajuan</div>}
+                </div>
+              </div>
+          </div>
+        )}
+      </div>
+      <style jsx global>{`.bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }`}</style>
+    </div>
+  );
+}
+
+export default function GuruDashboard() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-black text-slate-300 uppercase">SINKRONISASI DATA...</div>}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
