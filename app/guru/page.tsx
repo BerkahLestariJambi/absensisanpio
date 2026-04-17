@@ -49,9 +49,12 @@ function DashboardContent() {
           if (!acc[dateKey]) {
             acc[dateKey] = { 
               tanggalFormat: new Date(curr.waktu_absen).toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' }), 
-              masuk: null, pulang: null,
-              statusMasuk: "-", statusPulang: "-",
-              lokasiMasuk: "-", lokasiPulang: "-",
+              masuk: null, 
+              pulang: null,
+              statusMasuk: "-", 
+              statusPulang: "-",
+              lokasiMasuk: "-", 
+              lokasiPulang: "-",
               rawDate: new Date(curr.waktu_absen),
               isSpecialStatus: false 
             };
@@ -59,6 +62,7 @@ function DashboardContent() {
           
           const st = curr.status.toLowerCase();
           const lokasiTxt = curr.keterangan_lokasi || "Lokasi tidak tercatat";
+          
           const specialKeywords = ['sakit', 'izin', 'cuti', 'dinas'];
           const isSpecial = specialKeywords.some(key => st.includes(key));
 
@@ -66,11 +70,15 @@ function DashboardContent() {
             acc[dateKey].statusMasuk = curr.status.toUpperCase();
             acc[dateKey].lokasiMasuk = lokasiTxt;
             acc[dateKey].isSpecialStatus = true;
-          } else if (st.includes('masuk') || st.includes('terlambat')) {
+          } 
+          // Logika Masuk
+          else if (st.includes('masuk') || st.includes('terlambat')) {
             acc[dateKey].masuk = curr;
             acc[dateKey].statusMasuk = curr.status.toUpperCase();
             acc[dateKey].lokasiMasuk = lokasiTxt;
-          } else if (st.includes('pulang')) {
+          } 
+          // Logika Pulang
+          else if (st.includes('pulang')) {
             acc[dateKey].pulang = curr;
             acc[dateKey].statusPulang = curr.status.toUpperCase();
             acc[dateKey].lokasiPulang = lokasiTxt;
@@ -94,7 +102,6 @@ function DashboardContent() {
 
   useEffect(() => { if (guruIdFromUrl) loadData(); }, [guruIdFromUrl]);
 
-  // LOGIKA: Filter & Hitung Statistik
   const filteredRekap = useMemo(() => {
     return myRekap.filter(r => {
       const d = new Date(r.rawDate);
@@ -237,10 +244,12 @@ function DashboardContent() {
                         </td>
                         <td className="p-5 text-slate-600 border-r border-slate-100">
                             {(r.pulang && !r.isSpecialStatus) ? (
-                                <span className="bg-slate-100 px-2 py-1 rounded-md text-slate-800 font-mono">
+                                <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-md font-mono border border-blue-100">
                                     {new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}
                                 </span>
-                            ) : '-'}
+                            ) : (
+                                <span className="text-slate-300 italic text-[9px]">Belum Absen</span>
+                            )}
                         </td>
                         <td className="p-5 border-r border-slate-50">
                             <span className={`px-3 py-1.5 rounded-full text-[8px] font-black uppercase shadow-sm ${
@@ -292,7 +301,6 @@ function DashboardContent() {
             </div>
           </div>
         ) : (
-          /* BAGIAN FORM IZIN TETAP SAMA SEPERTI SEBELUMNYA */
           <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-bottom duration-500">
               <div className="bg-white/90 p-8 rounded-[32px] shadow-xl border border-slate-100">
                 <h2 className="text-[11px] font-black uppercase text-slate-800 mb-6 tracking-widest border-l-4 border-red-600 pl-4">Formulir Pengajuan</h2>
