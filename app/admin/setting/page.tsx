@@ -13,7 +13,7 @@ export default function AdminSetting() {
     nama_sekolah: "",
     tahun_pelajaran: "",
     semester: "",
-    jam_masuk: "07:00", // Tambahan Field Jam Masuk
+    jam_masuk: "07:00",
     jam_pulang_normal: "",
     jam_pulang_cepat_mulai: "",
     latitude_sekolah: "",
@@ -28,8 +28,6 @@ export default function AdminSetting() {
       try {
         const res = await fetch("https://backendabsen.mejatika.com/api/setting-app");
         const result = await res.json();
-        
-        // Sesuaikan dengan struktur data backend (biasanya result.data atau result langsung)
         const d = result.success ? result.data : result;
 
         if (d) {
@@ -54,31 +52,37 @@ export default function AdminSetting() {
       }
     };
 
+    let watchId: number;
     if ("geolocation" in navigator) {
-      navigator.geolocation.watchPosition((pos) => {
-        setAdminLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      }, null, { enableHighAccuracy: true });
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          setAdminLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        },
+        null,
+        { enableHighAccuracy: true, maximumAge: 0 }
+      );
     }
 
     loadConfig();
+    return () => { if (watchId) navigator.geolocation.clearWatch(watchId); };
   }, []);
 
   const tangkapLokasiSekolah = () => {
     if (adminLoc) {
       setFormData(prev => ({
         ...prev,
-        latitude_sekolah: adminLoc.lat.toString(),
-        longitude_sekolah: adminLoc.lng.toString()
+        latitude_sekolah: adminLoc.lat.toFixed(8),
+        longitude_sekolah: adminLoc.lng.toFixed(8)
       }));
       Swal.fire({
-        title: "Lokasi Terkunci!",
-        text: `Koordinat ${adminLoc.lat}, ${adminLoc.lng} berhasil diambil.`,
+        title: "Lokasi Terdeteksi",
+        text: "Koordinat GPS HP Anda telah dimasukkan.",
         icon: "success",
         timer: 1500,
         showConfirmButton: false
       });
     } else {
-      Swal.fire("GPS Belum Siap", "Mohon tunggu sebentar hingga sinyal GPS stabil.", "warning");
+      Swal.fire("GPS Belum Siap", "Pastikan izin lokasi aktif dan tunggu sinyal stabil.", "warning");
     }
   };
 
@@ -89,27 +93,26 @@ export default function AdminSetting() {
     const token = localStorage.getItem("auth_token");
     const dataToSend = new FormData();
     
-    // Append data teks
-    dataToSend.append("nama_sekolah", formData.nama_sekolah);
-    dataToSend.append("tahun_pelajaran", formData.tahun_pelajaran);
-    dataToSend.append("semester", formData.semester);
-    dataToSend.append("jam_masuk", formData.jam_masuk);
-    dataToSend.append("jam_pulang_normal", formData.jam_pulang_normal);
-    dataToSend.append("jam_pulang_cepat_mulai", formData.jam_pulang_cepat_mulai);
-    dataToSend.append("latitude_sekolah", formData.latitude_sekolah);
-    dataToSend.append("longitude_sekolah", formData.longitude_sekolah);
-    dataToSend.append("radius_maksimal", formData.radius_maksimal);
-
-    // Append logo jika ada file baru yang dipilih
-    if (formData.logo_sekolah) {
-      dataToSend.append("logo_sekolah", formData.logo_sekolah);
+    // Validasi sederhana sebelum kirim
+    if (!formData.latitude_sekolah || !formData.longitude_sekolah) {
+        Swal.fire("LOKASI KOSONG", "Koordinat sekolah wajib diisi!", "error");
+        setSaving(false);
+        return;
     }
+
+    Object.entries(formData).forEach(([key, value]) => {
+        if (key === 'logo_sekolah') {
+            if (value) dataToSend.append(key, value as File);
+        } else if (key !== 'current_logo') {
+            dataToSend.append(key, value as string);
+        }
+    });
 
     try {
       const res = await fetch("https://backendabsen.mejatika.com/api/admin/setting-update", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${token}`, // Tambahkan token jika endpoint ini terproteksi
+          "Authorization": `Bearer ${token}`,
           "Accept": "application/json"
         },
         body: dataToSend,
@@ -120,10 +123,8 @@ export default function AdminSetting() {
           title: "BERHASIL",
           text: "Pengaturan telah diperbarui!",
           icon: "success",
-          confirmButtonText: "OK",
           confirmButtonColor: "#dc2626"
         });
-        // Kembali ke Dashboard
         router.push("/admin/dashboard");
       } else {
         const errorData = await res.json();
@@ -139,14 +140,11 @@ export default function AdminSetting() {
   if (loading) return <div className="min-h-screen flex items-center justify-center font-black animate-pulse text-slate-400 uppercase">Mengunduh Konfigurasi...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-10 border-t-8 border-red-600">
+    <div className="min-h-screen bg-slate-50 p-4 md:p-10 border-t-8 border-red-600 font-sans">
       <div className="max-w-2xl mx-auto bg-white rounded-[40px] shadow-2xl border border-slate-200 overflow-hidden">
         
         <div className="bg-red-600 p-8 text-center relative">
-          <button 
-            onClick={() => router.back()} 
-            className="absolute left-6 top-1/2 -translate-y-1/2 text-white/80 hover:text-white font-bold text-sm"
-          >
+          <button onClick={() => router.back()} className="absolute left-6 top-1/2 -translate-y-1/2 text-white/80 hover:text-white font-bold text-sm">
             ← KEMBALI
           </button>
           <h1 className="text-white text-xl font-black uppercase">Setting Instansi & Lokasi</h1>
@@ -154,7 +152,7 @@ export default function AdminSetting() {
 
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
           
-          {/* SEKSI 0: UPLOAD LOGO */}
+          {/* LOGO */}
           <div className="space-y-4">
             <h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Logo Instansi</h3>
             <div className="flex items-center gap-6 p-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
@@ -166,26 +164,16 @@ export default function AdminSetting() {
                     ) : <span className="text-2xl">🏫</span>}
                 </div>
                 <div className="flex-1">
-                    <input 
-                        type="file" 
-                        accept="image/*"
-                        onChange={(e) => setFormData({...formData, logo_sekolah: e.target.files?.[0] || null})}
-                        className="text-xs font-bold text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-red-50 file:text-red-600 hover:file:bg-red-100 cursor-pointer"
-                    />
+                    <input type="file" accept="image/*" onChange={(e) => setFormData({...formData, logo_sekolah: e.target.files?.[0] || null})} className="text-xs font-bold text-slate-500 cursor-pointer" />
                     <p className="text-[9px] text-slate-400 mt-2">PNG/JPG. Maksimal 2MB.</p>
                 </div>
             </div>
           </div>
 
-          {/* SEKSI 1: PROFIL */}
+          {/* DATA SEKOLAH */}
           <div className="space-y-4">
             <h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Data Sekolah</h3>
-            <input 
-              type="text" placeholder="Nama Sekolah" value={formData.nama_sekolah}
-              onChange={(e) => setFormData({...formData, nama_sekolah: e.target.value})}
-              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-red-500 font-bold"
-              required
-            />
+            <input type="text" placeholder="Nama Sekolah" value={formData.nama_sekolah} onChange={(e) => setFormData({...formData, nama_sekolah: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-red-500 font-bold" required />
             <div className="grid grid-cols-2 gap-4">
               <input type="text" placeholder="TP: 2025/2026" value={formData.tahun_pelajaran} onChange={(e) => setFormData({...formData, tahun_pelajaran: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold" />
               <select value={formData.semester} onChange={(e) => setFormData({...formData, semester: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold">
@@ -195,63 +183,72 @@ export default function AdminSetting() {
             </div>
           </div>
 
-          {/* SEKSI 2: LOKASI GEOFENCING */}
+          {/* GEOFENCING */}
           <div className="p-6 bg-amber-50 rounded-[30px] border border-amber-200 space-y-4">
-            <h3 className="text-[10px] font-black text-amber-600 uppercase">📍 Lokasi Sekolah (Geofencing)</h3>
+            <div className="flex justify-between items-center">
+                <h3 className="text-[10px] font-black text-amber-600 uppercase">📍 Lokasi Geofencing</h3>
+                <span className="text-[8px] bg-amber-200 text-amber-700 px-2 py-0.5 rounded-full font-bold">BISA ISI MANUAL</span>
+            </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-[9px] font-bold text-slate-400 ml-2">LATITUDE</label>
-                <input type="text" value={formData.latitude_sekolah} readOnly className="w-full p-3 bg-white border border-amber-200 rounded-xl text-xs font-mono" />
+                <input 
+                    type="text" 
+                    value={formData.latitude_sekolah} 
+                    onChange={(e) => setFormData({...formData, latitude_sekolah: e.target.value})}
+                    placeholder="-8.123456"
+                    className="w-full p-3 bg-white border border-amber-200 rounded-xl text-xs font-mono focus:ring-2 ring-amber-400 outline-none" 
+                />
               </div>
               <div>
                 <label className="text-[9px] font-bold text-slate-400 ml-2">LONGITUDE</label>
-                <input type="text" value={formData.longitude_sekolah} readOnly className="w-full p-3 bg-white border border-amber-200 rounded-xl text-xs font-mono" />
+                <input 
+                    type="text" 
+                    value={formData.longitude_sekolah} 
+                    onChange={(e) => setFormData({...formData, longitude_sekolah: e.target.value})}
+                    placeholder="120.123456"
+                    className="w-full p-3 bg-white border border-amber-200 rounded-xl text-xs font-mono focus:ring-2 ring-amber-400 outline-none" 
+                />
               </div>
             </div>
 
-            <button 
-              type="button" 
-              onClick={tangkapLokasiSekolah}
-              className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 text-xs uppercase"
-            >
-              🎯 Ambil Lokasi Saya Sekarang
+            <button type="button" onClick={tangkapLokasiSekolah} className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 text-xs uppercase">
+              🎯 Gunakan Lokasi GPS Saya
             </button>
             
+            <p className="text-[9px] text-amber-700 leading-tight italic">
+                *Tips: Anda bisa menyalin koordinat langsung dari Google Maps lalu menempelkannya (paste) ke kotak di atas jika posisi GPS HP kurang akurat.
+            </p>
+
             <div>
               <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">Radius Absen (Meter)</label>
-              <input 
-                type="number" value={formData.radius_maksimal}
-                onChange={(e) => setFormData({...formData, radius_maksimal: e.target.value})}
-                className="w-full p-3 bg-white border border-amber-200 rounded-xl text-sm font-bold"
-              />
+              <input type="number" value={formData.radius_maksimal} onChange={(e) => setFormData({...formData, radius_maksimal: e.target.value})} className="w-full p-3 bg-white border border-amber-200 rounded-xl text-sm font-bold" />
             </div>
           </div>
 
-          {/* SEKSI 3: JAM KERJA */}
+          {/* JAM KERJA */}
           <div className="space-y-4">
             <h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Aturan Waktu</h3>
-            <div>
-                <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">Jam Masuk (Batas Terlambat)</label>
-                <input type="time" value={formData.jam_masuk} onChange={(e) => setFormData({...formData, jam_masuk: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold mb-4" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[9px] font-bold text-slate-400 ml-2">PULANG NORMAL</label>
-                <input type="time" value={formData.jam_pulang_normal} onChange={(e) => setFormData({...formData, jam_pulang_normal: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-              </div>
-              <div>
-                <label className="text-[9px] font-bold text-slate-400 ml-2">PULANG CEPAT MULAI</label>
-                <input type="time" value={formData.jam_pulang_cepat_mulai} onChange={(e) => setFormData({...formData, jam_pulang_cepat_mulai: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-              </div>
+            <div className="grid grid-cols-1 gap-4">
+                <div>
+                    <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">Jam Masuk</label>
+                    <input type="time" value={formData.jam_masuk} onChange={(e) => setFormData({...formData, jam_masuk: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">Pulang Normal</label>
+                        <input type="time" value={formData.jam_pulang_normal} onChange={(e) => setFormData({...formData, jam_pulang_normal: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                    </div>
+                    <div>
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">Pulang Cepat</label>
+                        <input type="time" value={formData.jam_pulang_cepat_mulai} onChange={(e) => setFormData({...formData, jam_pulang_cepat_mulai: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                    </div>
+                </div>
             </div>
           </div>
 
-          <button 
-            type="submit" 
-            disabled={saving}
-            className={`w-full py-5 rounded-[25px] font-black text-white text-lg shadow-xl transition-all ${saving ? 'bg-slate-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 active:scale-95'}`}
-          >
+          <button type="submit" disabled={saving} className={`w-full py-5 rounded-[25px] font-black text-white text-lg shadow-xl transition-all ${saving ? 'bg-slate-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 active:scale-95'}`}>
             {saving ? "SEDANG MENYIMPAN..." : "SIMPAN PERUBAHAN"}
           </button>
         </form>
