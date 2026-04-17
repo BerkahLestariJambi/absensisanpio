@@ -40,9 +40,9 @@ export default function AdminSetting() {
             jam_masuk: d.jam_masuk || "07:00",
             jam_pulang_normal: d.jam_pulang_normal || "12:45",
             jam_pulang_cepat_mulai: d.jam_pulang_cepat_mulai || "07:15",
-            latitude_sekolah: d.lat_sekolah || "",
-            longitude_sekolah: d.lng_sekolah || "",
-            radius_maksimal: d.radius_meter || "50",
+            latitude_sekolah: d.latitude_sekolah || "",
+            longitude_sekolah: d.longitude_sekolah || "",
+            radius_maksimal: d.radius_maksimal || "50",
             logo_sekolah: null,
             current_logo: d.logo_sekolah || ""
           });
@@ -96,9 +96,9 @@ export default function AdminSetting() {
     dataToSend.append("jam_masuk", formData.jam_masuk);
     dataToSend.append("jam_pulang_normal", formData.jam_pulang_normal);
     dataToSend.append("jam_pulang_cepat_mulai", formData.jam_pulang_cepat_mulai);
-    dataToSend.append("latitude_sekolah", formData.lat_sekolah);
-    dataToSend.append("longitude_sekolah", formData.lng_sekolah);
-    dataToSend.append("radius_maksimal", formData.radius_meter);
+    dataToSend.append("latitude_sekolah", formData.latitude_sekolah);
+    dataToSend.append("longitude_sekolah", formData.longitude_sekolah);
+    dataToSend.append("radius_maksimal", formData.radius_maksimal);
 
     // Append logo jika ada file baru yang dipilih
     if (formData.logo_sekolah) {
@@ -202,11 +202,11 @@ export default function AdminSetting() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-[9px] font-bold text-slate-400 ml-2">LATITUDE</label>
-                <input type="text" value={formData.lat_sekolah} readOnly className="w-full p-3 bg-white border border-amber-200 rounded-xl text-xs font-mono" />
+                <input type="text" value={formData.latitude_sekolah} readOnly className="w-full p-3 bg-white border border-amber-200 rounded-xl text-xs font-mono" />
               </div>
               <div>
                 <label className="text-[9px] font-bold text-slate-400 ml-2">LONGITUDE</label>
-                <input type="text" value={formData.lng_sekolah} readOnly className="w-full p-3 bg-white border border-amber-200 rounded-xl text-xs font-mono" />
+                <input type="text" value={formData.longitude_sekolah} readOnly className="w-full p-3 bg-white border border-amber-200 rounded-xl text-xs font-mono" />
               </div>
             </div>
 
@@ -221,8 +221,8 @@ export default function AdminSetting() {
             <div>
               <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">Radius Absen (Meter)</label>
               <input 
-                type="number" value={formData.radius_meter}
-                onChange={(e) => setFormData({...formData, radius_meter: e.target.value})}
+                type="number" value={formData.radius_maksimal}
+                onChange={(e) => setFormData({...formData, radius_maksimal: e.target.value})}
                 className="w-full p-3 bg-white border border-amber-200 rounded-xl text-sm font-bold"
               />
             </div>
