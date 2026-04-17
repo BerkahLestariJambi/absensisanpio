@@ -6,7 +6,11 @@ import Swal from "sweetalert2";
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const guruIdFromUrl = searchParams.get("id") || (typeof window !== 'undefined' ? window.location.search.split('=')[1] : null);
+  
+  // Mengambil ID dari URL dengan fallback yang lebih aman
+  const guruIdFromUrl = useMemo(() => {
+    return searchParams.get("id") || (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('id') : null);
+  }, [searchParams]);
 
   const [activeTab, setActiveTab] = useState("home");
   const [profile, setProfile] = useState<any>(null);
@@ -32,37 +36,43 @@ function DashboardContent() {
         if (!token) { router.push("/"); return; }
       }
 
+      // 1. Ambil Profil & Status
       const resStatus = await fetch(`${API_URL}/cek-status-absen/${guruIdFromUrl}`);
       const statusJson = await resStatus.json();
 
       if (statusJson.success) {
         setProfile({ nama_lengkap: statusJson.nama || "Guru" });
 
+        // 2. Ambil Rekap Absensi
         const resRekap = await fetch(`${API_URL}/admin/rekap-absensi`);
         const rekapJson = await resRekap.json();
         const allData = Array.isArray(rekapJson) ? rekapJson : (rekapJson.data || []);
         
+        // Filter data milik guru yang sedang login
         const rawData = allData.filter((item: any) => String(item.guru_id) === String(guruIdFromUrl));
 
+        // Grouping Data per Hari agar Masuk & Pulang berada dalam 1 baris tabel
         const grouped = rawData.reduce((acc: any, curr: any) => {
-          const dateKey = new Date(curr.waktu_absen).toLocaleDateString('en-CA'); 
+          const dateObj = new Date(curr.waktu_absen);
+          // Gunakan format YYYY-MM-DD sebagai key unik
+          const dateKey = dateObj.toISOString().split('T')[0];
+          
           if (!acc[dateKey]) {
             acc[dateKey] = { 
-              tanggalFormat: new Date(curr.waktu_absen).toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' }), 
+              tanggalFormat: dateObj.toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' }), 
               masuk: null, 
               pulang: null,
               statusMasuk: "-", 
               statusPulang: "-",
               lokasiMasuk: "-", 
               lokasiPulang: "-",
-              rawDate: new Date(curr.waktu_absen),
+              rawDate: dateObj,
               isSpecialStatus: false 
             };
           }
           
           const st = curr.status.toLowerCase();
           const lokasiTxt = curr.keterangan_lokasi || "Lokasi tidak tercatat";
-          
           const specialKeywords = ['sakit', 'izin', 'cuti', 'dinas'];
           const isSpecial = specialKeywords.some(key => st.includes(key));
 
@@ -71,13 +81,11 @@ function DashboardContent() {
             acc[dateKey].lokasiMasuk = lokasiTxt;
             acc[dateKey].isSpecialStatus = true;
           } 
-          // Logika Masuk
           else if (st.includes('masuk') || st.includes('terlambat')) {
             acc[dateKey].masuk = curr;
             acc[dateKey].statusMasuk = curr.status.toUpperCase();
             acc[dateKey].lokasiMasuk = lokasiTxt;
           } 
-          // Logika Pulang
           else if (st.includes('pulang')) {
             acc[dateKey].pulang = curr;
             acc[dateKey].statusPulang = curr.status.toUpperCase();
@@ -86,15 +94,17 @@ function DashboardContent() {
           return acc;
         }, {});
 
-        setMyRekap(Object.values(grouped).sort((a: any, b: any) => b.rawDate - a.rawDate));
+        // Sortir dari tanggal terbaru
+        setMyRekap(Object.values(grouped).sort((a: any, b: any) => b.rawDate.getTime() - a.rawDate.getTime()));
 
+        // 3. Ambil Daftar Izin
         const resIzin = await fetch(`${API_URL}/admin/daftar-izin`);
         const izinJson = await resIzin.json();
         const allIzin = Array.isArray(izinJson) ? izinJson : (izinJson.data || []);
         setMyIzin(allIzin.filter((i: any) => String(i.guru_id) === String(guruIdFromUrl)).reverse());
       }
     } catch (err) {
-      console.error("Gagal sinkronisasi data.");
+      console.error("Gagal sinkronisasi data.", err);
     } finally {
       setLoading(false);
     }
@@ -123,13 +133,21 @@ function DashboardContent() {
     formData.append("guru_id", guruIdFromUrl || "");
     formData.append("jenis", formIzin.jenis);
     formData.append("keterangan", formIzin.keterangan);
+    
     if (formIzin.jenis !== "Sakit") {
         if (formIzin.tanggal_mulai) formData.append("tanggal_mulai", formIzin.tanggal_mulai);
         if (formIzin.tanggal_selesai) formData.append("tanggal_selesai", formIzin.tanggal_selesai);
+    } else {
+        // Jika sakit biasanya satu hari, atau bisa disesuaikan dengan kebutuhan API
+        const today = new Date().toISOString().split('T')[0];
+        formData.append("tanggal_mulai", today);
+        formData.append("tanggal_selesai", today);
     }
+    
     if (formIzin.file) formData.append("foto_bukti", formIzin.file);
 
     Swal.fire({ title: "Mengirim...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    
     try {
       const res = await fetch(`${API_URL}/pengajuan-izin`, { 
         method: "POST", 
@@ -149,7 +167,11 @@ function DashboardContent() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center min-h-screen bg-[#fdf5e6] font-black text-slate-400 uppercase tracking-widest">Sinkronisasi Database...</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-screen bg-[#fdf5e6] font-black text-slate-400 uppercase tracking-widest animate-pulse">
+      Sinkronisasi Database...
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-[#fdf5e6] p-4 md:p-8 bg-batik animate-in fade-in duration-700">
@@ -248,7 +270,7 @@ function DashboardContent() {
                                     {new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}
                                 </span>
                             ) : (
-                                <span className="text-slate-300 italic text-[9px]">Belum Absen</span>
+                                <span className="text-slate-300 italic text-[9px]">{r.isSpecialStatus ? '-' : 'Belum Absen'}</span>
                             )}
                         </td>
                         <td className="p-5 border-r border-slate-50">
@@ -332,7 +354,7 @@ function DashboardContent() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Foto Bukti (Dokumen/Surat)</label>
-                    <input type="file" onChange={e => setFormIzin({...formIzin, file: e.target.files?.[0]})} className="w-full p-3 bg-slate-50 rounded-2xl text-[10px] font-bold ring-1 ring-slate-100"/>
+                    <input type="file" accept="image/*,.pdf" onChange={e => setFormIzin({...formIzin, file: e.target.files?.[0]})} className="w-full p-3 bg-slate-50 rounded-2xl text-[10px] font-bold ring-1 ring-slate-100"/>
                   </div>
                   <button type="submit" className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-red-700 transition active:scale-95">Kirim Ke Admin</button>
                 </form>
@@ -349,25 +371,4 @@ function DashboardContent() {
                         </span>
                         <p className="text-[8px] text-slate-400 font-bold">{new Date(izin.created_at).toLocaleDateString('id-ID')}</p>
                       </div>
-                      <p className="text-[11px] font-black text-slate-800 uppercase mb-1">{izin.jenis}</p>
-                      <p className="text-[10px] text-slate-500 italic leading-relaxed">"{izin.keterangan}"</p>
-                    </div>
-                  ))}
-                  {myIzin.length === 0 && <div className="py-20 text-center text-slate-300 font-bold text-[9px] uppercase italic tracking-widest">Belum ada riwayat pengajuan</div>}
-                </div>
-              </div>
-          </div>
-        )}
-      </div>
-      <style jsx global>{`.bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }`}</style>
-    </div>
-  );
-}
-
-export default function GuruDashboard() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-black text-slate-300 uppercase">SINKRONISASI DATA...</div>}>
-      <DashboardContent />
-    </Suspense>
-  );
-}
+                      <p className="text-
