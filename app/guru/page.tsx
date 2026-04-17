@@ -7,7 +7,6 @@ function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // Mengambil ID dari URL dengan fallback yang lebih aman
   const guruIdFromUrl = useMemo(() => {
     return searchParams.get("id") || (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('id') : null);
   }, [searchParams]);
@@ -18,7 +17,6 @@ function DashboardContent() {
   const [myIzin, setMyIzin] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // State Filter
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
 
@@ -36,25 +34,23 @@ function DashboardContent() {
         if (!token) { router.push("/"); return; }
       }
 
-      // 1. Ambil Profil & Status
       const resStatus = await fetch(`${API_URL}/cek-status-absen/${guruIdFromUrl}`);
       const statusJson = await resStatus.json();
 
       if (statusJson.success) {
         setProfile({ nama_lengkap: statusJson.nama || "Guru" });
 
-        // 2. Ambil Rekap Absensi
         const resRekap = await fetch(`${API_URL}/admin/rekap-absensi`);
         const rekapJson = await resRekap.json();
         const allData = Array.isArray(rekapJson) ? rekapJson : (rekapJson.data || []);
         
-        // Filter data milik guru yang sedang login
         const rawData = allData.filter((item: any) => String(item.guru_id) === String(guruIdFromUrl));
 
-        // Grouping Data per Hari agar Masuk & Pulang berada dalam 1 baris tabel
+        // LOGIKA GROUPING: Menampilkan semua jam tanpa pengecualian status
         const grouped = rawData.reduce((acc: any, curr: any) => {
           const dateObj = new Date(curr.waktu_absen);
-          // Gunakan format YYYY-MM-DD sebagai key unik
+          if (isNaN(dateObj.getTime())) return acc;
+          
           const dateKey = dateObj.toISOString().split('T')[0];
           
           if (!acc[dateKey]) {
@@ -77,6 +73,8 @@ function DashboardContent() {
           const isSpecial = specialKeywords.some(key => st.includes(key));
 
           if (isSpecial) {
+            // Jika status spesial (Sakit/Izin), kita masukkan ke kolom 'masuk' agar jamnya tampil
+            acc[dateKey].masuk = curr;
             acc[dateKey].statusMasuk = curr.status.toUpperCase();
             acc[dateKey].lokasiMasuk = lokasiTxt;
             acc[dateKey].isSpecialStatus = true;
@@ -94,10 +92,8 @@ function DashboardContent() {
           return acc;
         }, {});
 
-        // Sortir dari tanggal terbaru
         setMyRekap(Object.values(grouped).sort((a: any, b: any) => b.rawDate.getTime() - a.rawDate.getTime()));
 
-        // 3. Ambil Daftar Izin
         const resIzin = await fetch(`${API_URL}/admin/daftar-izin`);
         const izinJson = await resIzin.json();
         const allIzin = Array.isArray(izinJson) ? izinJson : (izinJson.data || []);
@@ -138,7 +134,6 @@ function DashboardContent() {
         if (formIzin.tanggal_mulai) formData.append("tanggal_mulai", formIzin.tanggal_mulai);
         if (formIzin.tanggal_selesai) formData.append("tanggal_selesai", formIzin.tanggal_selesai);
     } else {
-        // Jika sakit biasanya satu hari, atau bisa disesuaikan dengan kebutuhan API
         const today = new Date().toISOString().split('T')[0];
         formData.append("tanggal_mulai", today);
         formData.append("tanggal_selesai", today);
@@ -176,7 +171,6 @@ function DashboardContent() {
   return (
     <div className="min-h-screen bg-[#fdf5e6] p-4 md:p-8 bg-batik animate-in fade-in duration-700">
       <div className="max-w-7xl mx-auto">
-        {/* HEADER */}
         <header className="mb-6 flex flex-col md:flex-row items-center justify-between gap-4 bg-white/90 backdrop-blur-md p-6 rounded-[30px] shadow-sm border border-slate-100">
           <div className="flex items-center gap-4 w-full md:w-auto">
             <div className="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg uppercase">
@@ -190,7 +184,6 @@ function DashboardContent() {
           <button onClick={() => router.push("/")} className="bg-slate-800 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:shadow-xl transition active:scale-95">🏠 Mesin Absen</button>
         </header>
 
-        {/* NAVIGATION & STATS */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
             <nav className="flex gap-2 bg-white/50 p-2 rounded-2xl w-fit border border-white">
                 <button onClick={() => setActiveTab("home")} className={`py-2 px-6 rounded-xl text-[10px] font-black uppercase transition-all ${activeTab === 'home' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400'}`}>🏠 Riwayat Absen</button>
@@ -217,7 +210,6 @@ function DashboardContent() {
 
         {activeTab === "home" ? (
           <div className="space-y-4">
-            {/* FILTER TABLE */}
             <div className="bg-white/90 backdrop-blur-md p-6 rounded-[24px] border border-slate-100 flex flex-wrap gap-4 items-center justify-between">
                 <div className="flex gap-2 items-center">
                     <label className="text-[9px] font-black uppercase text-slate-400">Periode:</label>
@@ -233,7 +225,6 @@ function DashboardContent() {
                 <button onClick={() => window.print()} className="text-[9px] font-black uppercase text-slate-500 bg-slate-100 px-4 py-2 rounded-xl hover:bg-slate-200 transition">🖨️ Cetak Laporan</button>
             </div>
 
-            {/* TABLE */}
             <div className="bg-white/90 backdrop-blur-md rounded-[32px] shadow-xl border border-slate-100 overflow-hidden">
                 <div className="overflow-x-auto">
                 <table className="w-full text-center border-collapse">
@@ -258,14 +249,14 @@ function DashboardContent() {
                             <span className="text-[8px] text-slate-400 uppercase tracking-tighter">{new Date(r.rawDate).toLocaleDateString('id-ID', {weekday: 'long'})}</span>
                         </td>
                         <td className="p-5 text-slate-600 border-r border-slate-50">
-                            {(r.masuk && !r.isSpecialStatus) ? (
+                            {r.masuk ? (
                                 <span className="bg-slate-100 px-2 py-1 rounded-md text-slate-800 font-mono">
                                     {new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}
                                 </span>
                             ) : '-'}
                         </td>
                         <td className="p-5 text-slate-600 border-r border-slate-100">
-                            {(r.pulang && !r.isSpecialStatus) ? (
+                            {r.pulang ? (
                                 <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-md font-mono border border-blue-100">
                                     {new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}
                                 </span>
@@ -293,11 +284,11 @@ function DashboardContent() {
                             <div className="flex flex-col gap-2">
                             {(r.masuk || r.isSpecialStatus) && (
                                 <div className={`p-3 rounded-2xl border-l-4 transition ${r.isSpecialStatus ? 'bg-purple-50/50 border-purple-500' : 'bg-slate-50 border-red-500 group-hover:bg-white'}`}>
-                                <p className="text-[7px] text-slate-400 uppercase font-black mb-1">{r.isSpecialStatus ? '📋 Keterangan Izin/Sakit:' : '📍 Titik Koordinat Masuk:'}</p>
+                                <p className="text-[7px] text-slate-400 uppercase font-black mb-1">{r.isSpecialStatus ? '📋 Keterangan Izin/Sakit/Tugas:' : '📍 Titik Koordinat Masuk:'}</p>
                                 <p className="text-[9px] leading-tight text-slate-600 font-medium italic">"{r.lokasiMasuk}"</p>
                                 </div>
                             )}
-                            {r.pulang && !r.isSpecialStatus && (
+                            {r.pulang && (
                                 <div className="bg-blue-50/50 p-3 rounded-2xl border-l-4 border-blue-500 transition group-hover:bg-white">
                                 <p className="text-[7px] text-blue-400 uppercase font-black mb-1">📍 Titik Koordinat Pulang:</p>
                                 <p className="text-[9px] leading-tight text-blue-600 font-medium italic">"{r.lokasiPulang}"</p>
