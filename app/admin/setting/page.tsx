@@ -16,9 +16,9 @@ export default function AdminSetting() {
     jam_masuk: "07:00", // Tambahan Field Jam Masuk
     jam_pulang_normal: "",
     jam_pulang_cepat_mulai: "",
-    lat_sekolah: "",
-    lng_sekolah: "",
-    radius_meter: "50",
+    latitude_sekolah: "",
+    longitude_sekolah: "",
+    radius_maksimal: "50",
     logo_sekolah: null as File | null,
     current_logo: ""
   });
@@ -40,9 +40,9 @@ export default function AdminSetting() {
             jam_masuk: d.jam_masuk || "07:00",
             jam_pulang_normal: d.jam_pulang_normal || "12:45",
             jam_pulang_cepat_mulai: d.jam_pulang_cepat_mulai || "07:15",
-            lat_sekolah: d.lat_sekolah || "",
-            lng_sekolah: d.lng_sekolah || "",
-            radius_meter: d.radius_meter || "50",
+            latitude_sekolah: d.lat_sekolah || "",
+            longitude_sekolah: d.lng_sekolah || "",
+            radius_maksimal: d.radius_meter || "50",
             logo_sekolah: null,
             current_logo: d.logo_sekolah || ""
           });
@@ -67,8 +67,8 @@ export default function AdminSetting() {
     if (adminLoc) {
       setFormData(prev => ({
         ...prev,
-        lat_sekolah: adminLoc.lat.toString(),
-        lng_sekolah: adminLoc.lng.toString()
+        latitude_sekolah: adminLoc.lat.toString(),
+        longitude_sekolah: adminLoc.lng.toString()
       }));
       Swal.fire({
         title: "Lokasi Terkunci!",
@@ -96,9 +96,9 @@ export default function AdminSetting() {
     dataToSend.append("jam_masuk", formData.jam_masuk);
     dataToSend.append("jam_pulang_normal", formData.jam_pulang_normal);
     dataToSend.append("jam_pulang_cepat_mulai", formData.jam_pulang_cepat_mulai);
-    dataToSend.append("lat_sekolah", formData.lat_sekolah);
-    dataToSend.append("lng_sekolah", formData.lng_sekolah);
-    dataToSend.append("radius_meter", formData.radius_meter);
+    dataToSend.append("latitude_sekolah", formData.lat_sekolah);
+    dataToSend.append("longitude_sekolah", formData.lng_sekolah);
+    dataToSend.append("radius_maksimal", formData.radius_meter);
 
     // Append logo jika ada file baru yang dipilih
     if (formData.logo_sekolah) {
