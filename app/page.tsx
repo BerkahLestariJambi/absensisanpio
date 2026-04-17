@@ -5,6 +5,28 @@ import * as faceapi from "face-api.js";
 import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
 
+// --- HELPER VOICE ANNOUNCER ---
+let lastSpeechTime = 0;
+const playVoice = (text: string, cooldownMs: number = 4000) => {
+  if (typeof window !== "undefined" && window.speechSynthesis) {
+    const now = Date.now();
+    if (now - lastSpeechTime < cooldownMs) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "id-ID";
+    utterance.rate = 1.1;
+    utterance.pitch = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    const idVoice = voices.find(v => v.lang.includes("id-ID"));
+    if (idVoice) utterance.voice = idVoice;
+
+    window.speechSynthesis.speak(utterance);
+    lastSpeechTime = now;
+  }
+};
+
 export default function HomeAbsensi() {
   const [view, setView] = useState<"menu" | "absen">("menu");
   const webcamRef = useRef<Webcam>(null);
@@ -19,7 +41,7 @@ export default function HomeAbsensi() {
   const isLocked = useRef(false);
   const scanIntervalRef = useRef<any>(null);
   const faceBuffer = useRef(0);
-  const unknownBuffer = useRef(0); // Menghitung berapa kali wajah tidak dikenal terdeteksi
+  const unknownBuffer = useRef(0); 
 
   const router = useRouter();
   const videoConstraints = { width: 320, height: 480, facingMode: "user" as const };
@@ -63,12 +85,14 @@ export default function HomeAbsensi() {
         const validDescriptors = labeledDescriptors.filter(d => d !== null) as faceapi.LabeledFaceDescriptors[];
         
         if (isMounted && validDescriptors.length > 0) {
-          // Perketat threshold ke 0.45 agar tidak mudah tertukar dengan orang lain
           setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.45));
           if (view === "menu") setPesan("⚡ Scanner Siap");
         }
       } catch (err) { 
-        if (isMounted) setPesan("Gagal memuat sistem");
+        if (isMounted) {
+            setPesan("Gagal memuat sistem");
+            playVoice("Gagal memuat sistem biometrik.");
+        }
       }
     };
 
@@ -77,7 +101,10 @@ export default function HomeAbsensi() {
     if ("geolocation" in navigator) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => console.error("GPS Error:", err), 
+        (err) => {
+            console.error("GPS Error:", err);
+            playVoice("Sinyal GPS tidak ditemukan. Mohon aktifkan lokasi.");
+        }, 
         { enableHighAccuracy: true }
       );
       return () => {
@@ -94,6 +121,7 @@ export default function HomeAbsensi() {
       isLocked.current = false; 
       faceBuffer.current = 0;
       unknownBuffer.current = 0;
+      playVoice("Sistem aktif, silakan posisikan wajah Anda.");
 
       scanIntervalRef.current = setInterval(async () => {
         if (isProcessing || isLocked.current) return;
@@ -124,28 +152,30 @@ export default function HomeAbsensi() {
                 const match = faceMatcher.findBestMatch(detection.descriptor);
                 
                 if (match.label !== "unknown") {
-                  unknownBuffer.current = 0; // Reset jika wajah dikenal
+                  unknownBuffer.current = 0; 
                   faceBuffer.current++;
                   setPesan("Wajah Terkunci... Mohon Diam");
                   
+                  if (faceBuffer.current === 1) playVoice("Wajah terkunci, mohon jangan bergerak.");
+
                   if (faceBuffer.current >= 2) {
                     isLocked.current = true; 
                     setIsProcessing(true);
                     setScanStatus("success");
                     clearInterval(scanIntervalRef.current); 
                     setPesan("Sinkronisasi Biometrik...");
+                    playVoice("Sinkronisasi biometrik, mohon tunggu.");
                     handleRecognitionSuccess(match.label);
                   }
                 } else {
-                  // LOGIKA: Wajah tidak cocok
                   faceBuffer.current = 0;
                   unknownBuffer.current++;
                   setPesan("Mencocokkan...");
 
-                  // Jika 10 frame berturut-turut tidak dikenal (sekitar 1.5 detik)
                   if (unknownBuffer.current >= 10) {
                     isLocked.current = true;
                     clearInterval(scanIntervalRef.current);
+                    playVoice("Wajah tidak cocok. Mohon gunakan akun yang terdaftar.");
                     
                     Swal.fire({
                       title: "WAJAH TIDAK COCOK",
@@ -163,7 +193,13 @@ export default function HomeAbsensi() {
               faceBuffer.current = 0;
               unknownBuffer.current = 0;
               setScanStatus("searching");
-              setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!"); 
+              if (width < 80) {
+                setPesan("Dekatkan Wajah...");
+                playVoice("Wajah terlalu jauh, mohon dekatkan sedikit.");
+              } else {
+                setPesan("Terlalu Dekat!");
+                playVoice("Wajah terlalu dekat, mohon mundurkan posisi Anda.");
+              }
             }
           } else { 
             faceBuffer.current = 0;
@@ -185,6 +221,7 @@ export default function HomeAbsensi() {
       const checkData = await checkRes.json();
 
       if (checkData.sudah_lengkap) {
+          playVoice(`Halo ${checkData.nama}, Anda sudah melakukan absensi hari ini.`);
           await Swal.fire({
             title: "SUDAH LENGKAP",
             html: `Halo <b>${checkData.nama}</b>,<br/>Anda sudah absen masuk & pulang hari ini.`,
@@ -218,6 +255,7 @@ export default function HomeAbsensi() {
       const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
       if (jumlahAbsen > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
+        playVoice("Jadwal pulang belum tiba. Silakan pilih alasan pulang cepat.");
         const { value: alasan } = await Swal.fire({
           title: "PULANG CEPAT",
           text: "Pilih alasan pulang mendahului jadwal:",
@@ -253,7 +291,15 @@ export default function HomeAbsensi() {
 
   const sendToServer = async (guruId: string, lat: number, lng: number, image?: string | null, statusTambahan?: string) => {
     try {
+      if (!navigator.onLine) {
+          playVoice("Koneksi internet buruk. Mohon periksa jaringan Anda.");
+          await Swal.fire("Offline", "Tidak ada koneksi internet.", "error");
+          resetScanner();
+          return;
+      }
+
       if (lat === 0 || lng === 0) {
+          playVoice("Gagal mengambil lokasi GPS.");
           await Swal.fire("GPS Belum Siap", "Mohon tunggu sinyal lokasi.", "warning");
           resetScanner();
           return;
@@ -268,6 +314,7 @@ export default function HomeAbsensi() {
       const data = await res.json();
       
       if (res.ok) {
+        playVoice("Absensi berhasil. Terima kasih.");
         await Swal.fire({
           title: "BERHASIL",
           html: `<div class="text-sm"><b>${data.message}</b><br/>${new Date().toLocaleTimeString('id-ID')}</div>`,
@@ -290,10 +337,12 @@ export default function HomeAbsensi() {
         if (isConfirmed) router.push(`/guru?id=${guruId}`);
         else resetScanner();
       } else {
+        playVoice("Gagal menyimpan absensi.");
         await Swal.fire("GAGAL", data.message, "error");
         resetScanner();
       }
     } catch (e) {
+      playVoice("Terjadi kesalahan koneksi server.");
       Swal.fire("Error", "Gagal menghubungi server.", "error");
       resetScanner();
     }
