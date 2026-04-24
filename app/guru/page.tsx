@@ -46,40 +46,37 @@ function DashboardContent() {
         
         const rawData = allData.filter((item: any) => String(item.guru_id) === String(guruIdFromUrl));
 
-        // --- PERBAIKAN LOGIKA GROUPING (MENGATASI INVALID DATE) ---
+        // LOGIKA GROUPING TOTAL: Menampilkan jam masuk & pulang tanpa filter sembunyi
         const grouped = rawData.reduce((acc: any, curr: any) => {
-          if (!curr.waktu_absen) return acc;
-
-          // Pisahkan string "2026-04-24 07:30:00" secara manual
-          const parts = curr.waktu_absen.split(' ');
-          const dateKey = parts[0]; // "2026-04-24"
-          const timeKey = parts[1] ? parts[1].substring(0, 5) : "--:--"; // "07:30"
-
+          const dateObj = new Date(curr.waktu_absen);
+          if (isNaN(dateObj.getTime())) return acc;
+          const dateKey = dateObj.toISOString().split('T')[0];
+          
           if (!acc[dateKey]) {
-            const [y, m, d] = dateKey.split('-');
-            const bulanIndo = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-            
             acc[dateKey] = { 
-              tanggalFormat: `${d} ${bulanIndo[parseInt(m) - 1]} ${y}`, 
+              tanggalFormat: dateObj.toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' }), 
               masuk: null, 
               pulang: null,
               statusMasuk: "-", 
               statusPulang: "-",
               lokasiMasuk: "-", 
               lokasiPulang: "-",
-              rawDate: new Date(dateKey) 
+              rawDate: dateObj
             };
           }
           
           const st = curr.status.toLowerCase();
           const lokasiTxt = curr.keterangan_lokasi || "Lokasi tidak tercatat";
 
+          // Jika status mengandung kata "pulang"
           if (st.includes('pulang')) {
-            acc[dateKey].pulang = timeKey;
+            acc[dateKey].pulang = curr;
             acc[dateKey].statusPulang = curr.status.toUpperCase();
             acc[dateKey].lokasiPulang = lokasiTxt;
-          } else {
-            acc[dateKey].masuk = timeKey;
+          } 
+          // Selain itu (masuk, terlambat, sakit, izin, dinas, dll) masuk ke kolom pertama
+          else {
+            acc[dateKey].masuk = curr;
             acc[dateKey].statusMasuk = curr.status.toUpperCase();
             acc[dateKey].lokasiMasuk = lokasiTxt;
           }
@@ -104,10 +101,19 @@ function DashboardContent() {
 
   const filteredRekap = useMemo(() => {
     return myRekap.filter(r => {
-      const d = r.rawDate;
+      const d = new Date(r.rawDate);
       return d.getMonth() + 1 === Number(filterMonth) && d.getFullYear() === Number(filterYear);
     });
   }, [myRekap, filterMonth, filterYear]);
+
+  // Stats sederhana
+  const stats = useMemo(() => {
+    return {
+      hadir: filteredRekap.filter(r => r.statusMasuk === 'MASUK').length,
+      terlambat: filteredRekap.filter(r => r.statusMasuk.includes('TERLAMBAT')).length,
+      izin: filteredRekap.filter(r => ['SAKIT', 'IZIN', 'CUTI', 'DINAS'].some(s => r.statusMasuk.includes(s))).length,
+    };
+  }, [filteredRekap]);
 
   const handleIzinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,23 +200,23 @@ function DashboardContent() {
                     <tr key={i} className="hover:bg-slate-50 transition">
                       <td className="p-4 text-left border-r">
                         <span className="block text-slate-800">{r.tanggalFormat}</span>
-                        <span className="text-[8px] text-slate-400">{r.rawDate.toLocaleDateString('id-ID', {weekday: 'long'})}</span>
+                        <span className="text-[8px] text-slate-400">{new Date(r.rawDate).toLocaleDateString('id-ID', {weekday: 'long'})}</span>
                       </td>
-                      {/* JAM MASUK - FIX INVALID DATE */}
+                      {/* JAM MASUK */}
                       <td className="p-4 border-r">
-                        {r.masuk && r.masuk !== "--:--" ? (
-                          <span className="bg-slate-100 px-2 py-1 rounded text-slate-800 font-mono text-[12px]">
-                            {r.masuk}
+                        {r.masuk ? (
+                          <span className="bg-slate-100 px-2 py-1 rounded text-slate-800 font-mono">
+                            { Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}
                           </span>
                         ) : "-"}
                       </td>
-                      {/* JAM PULANG - FIX INVALID DATE */}
+                      {/* JAM PULANG */}
                       <td className="p-4 border-r">
-                        {r.pulang && r.pulang !== "--:--" ? (
-                          <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-mono border border-blue-100 text-[12px]">
-                            {r.pulang}
+                        {r.pulang ? (
+                          <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-mono border border-blue-100">
+                            {new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}
                           </span>
-                        ) : <span className="text-slate-300 italic text-[9px]">Belum Pulang</span>}
+                        ) : <span className="text-slate-300 italic">Belum Pulang</span>}
                       </td>
                       {/* STATUS MASUK */}
                       <td className="p-4 border-r">
@@ -229,15 +235,16 @@ function DashboardContent() {
                           {r.statusPulang}
                         </span>
                       </td>
+                      {/* LOKASI */}
                       <td className="p-4 text-left min-w-[250px]">
                         <div className="space-y-1">
-                          {r.masuk && r.masuk !== "--:--" && (
+                          {r.masuk && (
                             <div className="text-[9px] bg-slate-50 p-2 rounded-lg border-l-2 border-red-500">
                               <span className="text-slate-400 block text-[7px]">MASUK/KET:</span>
                               "{r.lokasiMasuk}"
                             </div>
                           )}
-                          {r.pulang && r.pulang !== "--:--" && (
+                          {r.pulang && (
                             <div className="text-[9px] bg-blue-50 p-2 rounded-lg border-l-2 border-blue-500">
                               <span className="text-blue-400 block text-[7px]">PULANG:</span>
                               "{r.lokasiPulang}"
@@ -255,6 +262,7 @@ function DashboardContent() {
         ) : (
           <div className="bg-white/90 p-8 rounded-[32px] max-w-xl mx-auto shadow-xl">
              <h2 className="font-black uppercase mb-6 border-l-4 border-red-600 pl-4">Form Pengajuan</h2>
+             {/* ... (Form Izin tetap sama seperti sebelumnya) ... */}
              <form onSubmit={handleIzinSubmit} className="space-y-4">
                 <select value={formIzin.jenis} onChange={e => setFormIzin({...formIzin, jenis: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold outline-none border border-slate-100">
                   <option value="Izin">Izin</option>
