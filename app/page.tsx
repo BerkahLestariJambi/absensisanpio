@@ -113,7 +113,7 @@ export default function HomeAbsensi() {
       };
     }
     return () => { isMounted = false; };
-  }, []);
+  }, [view]);
 
   // --- 2. ENGINE SCANNER ---
   useEffect(() => {
@@ -239,10 +239,17 @@ export default function HomeAbsensi() {
       }
 
       const jumlahAbsen = checkData.jumlah_absen || 0;
-      const jamSekarangWita = new Intl.DateTimeFormat('id-ID', {
-          timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', hour12: false
-      }).format(new Date());
-      const [h, m] = jamSekarangWita.split(/[.:]/).map(Number);
+
+      // --- PERBAIKAN LOGIKA WAKTU (FORCE WITA) ---
+      const sekarang = new Date();
+      const jamSekarangWita = sekarang.toLocaleTimeString('en-GB', { 
+          timeZone: 'Asia/Makassar', 
+          hour: '2-digit', 
+          minute: '2-digit', 
+          hour12: false 
+      });
+      
+      const [h, m] = jamSekarangWita.split(':').map(Number);
       const totalMenitSekarang = h * 60 + m;
 
       const parseConfig = (t: string) => {
@@ -305,10 +312,21 @@ export default function HomeAbsensi() {
           return;
       }
 
+      // --- SINKRONISASI WAKTU KE SERVER ---
+      // Mengirimkan waktu lokal perangkat dalam format ISO untuk dikonversi server
+      const clientTimeISO = new Date().toISOString(); 
+
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guru_id: guruId, lat, lng, status_tambahan: statusTambahan, image: image }),
+        body: JSON.stringify({ 
+            guru_id: guruId, 
+            lat, 
+            lng, 
+            status_tambahan: statusTambahan, 
+            image: image,
+            client_time: clientTimeISO // Tambahan parameter untuk membantu server
+        }),
       });
       
       const data = await res.json();
@@ -317,7 +335,7 @@ export default function HomeAbsensi() {
         playVoice("Absensi berhasil. Terima kasih.");
         await Swal.fire({
           title: "BERHASIL",
-          html: `<div class="text-sm"><b>${data.message}</b><br/>${new Date().toLocaleTimeString('id-ID')}</div>`,
+          html: `<div class="text-sm"><b>${data.message}</b><br/>${new Date().toLocaleTimeString('id-ID', {timeZone: 'Asia/Makassar'})} WITA</div>`,
           icon: "success",
           timer: 2000,
           showConfirmButton: false
@@ -348,6 +366,7 @@ export default function HomeAbsensi() {
     }
   };
 
+  // --- UI RENDER (Tetap Sama) ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
