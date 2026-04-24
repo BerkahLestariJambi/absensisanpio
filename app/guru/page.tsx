@@ -209,6 +209,7 @@ function DashboardContent() {
       {new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {
         hour: '2-digit',
         minute: '2-digit',
+      secon: '2-digit',
         timeZone: 'UTC' // Gunakan UTC jika database Anda menyimpan waktu murni tanpa offset
       })}
     </span>
@@ -222,6 +223,7 @@ function DashboardContent() {
       {new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {
         hour: '2-digit',
         minute: '2-digit',
+         secon: '2-digit',
         timeZone: 'UTC'
       })}
     </span>
