@@ -206,8 +206,8 @@ function DashboardContent() {
                       <td className="p-4 border-r">
                         {r.masuk ? (
                           <span className="bg-slate-100 px-2 py-1 rounded text-slate-800 font-mono">
-                            {   /* {new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}*/}
-                            {r.masuk.waktu_absen }
+                              {new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})
+                              {/* {r.masuk.waktu_absen }*/}
                           </span>
                         ) : "-"}
                       </td>
