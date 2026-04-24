@@ -47,42 +47,47 @@ function DashboardContent() {
         const rawData = allData.filter((item: any) => String(item.guru_id) === String(guruIdFromUrl));
 
         // LOGIKA GROUPING TOTAL: Menampilkan jam masuk & pulang tanpa filter sembunyi
+        // LOGIKA GROUPING TOTAL: Mengambil jam langsung dari string database (YYYY-MM-DD HH:mm:ss)
         const grouped = rawData.reduce((acc: any, curr: any) => {
-          const dateObj = new Date(curr.waktu_absen);
-          if (isNaN(dateObj.getTime())) return acc;
-          const dateKey = dateObj.toISOString().split('T')[0];
-          
+          // Pisahkan string waktu manual untuk menghindari bug timezone browser
+          // Asumsi format curr.waktu_absen: "2026-04-24 07:15:00"
+          const parts = curr.waktu_absen.split(' ');
+          const dateKey = parts[0]; // "2026-04-24"
+          const timeKey = parts[1] ? parts[1].substring(0, 5) : "--:--"; // "07:15"
+
           if (!acc[dateKey]) {
+            // Format tanggal manual untuk tampilan Indonesia
+            const [y, m, d] = dateKey.split('-');
+            const bulanIndo = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", 
+                                "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+            
             acc[dateKey] = { 
-              tanggalFormat: dateObj.toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' }), 
+              tanggalFormat: `${d} ${bulanIndo[parseInt(m) - 1]} ${y}`, 
               masuk: null, 
               pulang: null,
               statusMasuk: "-", 
               statusPulang: "-",
               lokasiMasuk: "-", 
               lokasiPulang: "-",
-              rawDate: dateObj
+              rawDate: new Date(dateKey) // Untuk sorting
             };
           }
           
           const st = curr.status.toLowerCase();
           const lokasiTxt = curr.keterangan_lokasi || "Lokasi tidak tercatat";
 
-          // Jika status mengandung kata "pulang"
           if (st.includes('pulang')) {
-            acc[dateKey].pulang = curr;
+            acc[dateKey].pulang = timeKey;
             acc[dateKey].statusPulang = curr.status.toUpperCase();
             acc[dateKey].lokasiPulang = lokasiTxt;
-          } 
-          // Selain itu (masuk, terlambat, sakit, izin, dinas, dll) masuk ke kolom pertama
-          else {
-            acc[dateKey].masuk = curr;
+          } else {
+            acc[dateKey].masuk = timeKey;
             acc[dateKey].statusMasuk = curr.status.toUpperCase();
             acc[dateKey].lokasiMasuk = lokasiTxt;
           }
           return acc;
         }, {});
-
+        
         setMyRekap(Object.values(grouped).sort((a: any, b: any) => b.rawDate.getTime() - a.rawDate.getTime()));
 
         const resIzin = await fetch(`${API_URL}/admin/daftar-izin`);
