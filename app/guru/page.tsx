@@ -202,23 +202,34 @@ function DashboardContent() {
                         <span className="block text-slate-800">{r.tanggalFormat}</span>
                         <span className="text-[8px] text-slate-400">{new Date(r.rawDate).toLocaleDateString('id-ID', {weekday: 'long'})}</span>
                       </td>
-                      {/* JAM MASUK */}
-                      <td className="p-4 border-r">
-                        {r.masuk ? (
-                          <span className="bg-slate-100 px-2 py-1 rounded text-slate-800 font-mono">
-                              {new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit',timeZone:'UTC'})
-                              {/* {r.masuk.waktu_absen }*/}
-                          </span>
-                        ) : "-"}
-                      </td>
-                      {/* JAM PULANG */}
-                      <td className="p-4 border-r">
-                        {r.pulang ? (
-                          <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-mono border border-blue-100">
-                            {new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}
-                          </span>
-                        ) : <span className="text-slate-300 italic">Belum Pulang</span>}
-                      </td>
+                  {/* JAM MASUK */}
+<td className="p-4 border-r">
+  {r.masuk ? (
+    <span className="bg-slate-100 px-2 py-1 rounded text-slate-800 font-mono">
+      {new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'UTC' // Gunakan UTC jika database Anda menyimpan waktu murni tanpa offset
+      })}
+    </span>
+  ) : "-"}
+</td>
+
+{/* JAM PULANG */}
+<td className="p-4 border-r">
+  {r.pulang ? (
+    <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-mono border border-blue-100">
+      {new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'UTC'
+      })}
+    </span>
+  ) : (
+    <span className="text-slate-300 italic">Belum Pulang</span>
+  )}
+</td>
+
                       {/* STATUS MASUK */}
                       <td className="p-4 border-r">
                         <span className={`px-2 py-1 rounded-full text-[8px] uppercase ${
