@@ -172,8 +172,8 @@ function DashboardContent() {
                   {myRekap.map((r, i) => (
                     <tr key={i} className="hover:bg-slate-50/80 transition">
                       <td className="p-5 text-left font-black text-slate-700 border-r border-slate-100">{r.tanggalFormat}</td>
-                      <td className="p-5 text-slate-600 border-r border-slate-50">{(r.masuk && !r.isSpecialStatus) ? new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
-                      <td className="p-5 text-slate-600 border-r border-slate-100">{(r.pulang && !r.isSpecialStatus) ? new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
+                      <td className="p-5 text-slate-600 border-r border-slate-50">{(r.masuk && !r.isSpecialStatus) ? new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit', timeZone: 'UTC'}) : '-'}</td>
+                      <td className="p-5 text-slate-600 border-r border-slate-100">{(r.pulang && !r.isSpecialStatus) ? new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit', timeZone: 'UTC'}) : '-'}</td>
                       <td className="p-5 border-r border-slate-50">
                         <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase ${r.statusMasuk.includes('TERLAMBAT') ? 'bg-orange-100 text-orange-600' : r.statusMasuk === '-' ? 'text-slate-200' : 'bg-green-100 text-green-600'}`}>
                           {r.statusMasuk}
