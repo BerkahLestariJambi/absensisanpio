@@ -207,71 +207,7 @@ function DashboardContent() {
             </div>
           </div>
         ) : (
-          <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-bottom duration-500">
-              <div className="bg-white/90 p-8 rounded-[32px] shadow-xl border border-slate-100">
-                <h2 className="text-[11px] font-black uppercase text-slate-800 mb-6 tracking-widest border-l-4 border-red-600 pl-4">Formulir Pengajuan</h2>
-                <form onSubmit={handleIzinSubmit} className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Jenis Absensi</label>
-                    <select value={formIzin.jenis} onChange={e => setFormIzin({...formIzin, jenis: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-red-600 transition">
-                      <option value="Izin">Izin</option>
-                      <option value="Sakit">Sakit</option>
-                      <option value="Cuti">Cuti</option>
-                      <option value="Dinas Luar">Dinas Luar</option>
-                    </select>
-                  </div>
-
-                  {/* LOGIKA TANGGAL: Hilang jika Sakit */}
-                  {formIzin.jenis !== "Sakit" && (
-                    <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Dari Tanggal <span className="text-red-500">*</span></label>
-                        <input type="date" required value={formIzin.tanggal_mulai} onChange={e => setFormIzin({...formIzin, tanggal_mulai: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold ring-1 ring-slate-100 outline-none focus:ring-2 focus:ring-red-600"/>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Sampai Tanggal <span className="text-red-500">*</span></label>
-                        <input type="date" required value={formIzin.tanggal_selesai} onChange={e => setFormIzin({...formIzin, tanggal_selesai: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold ring-1 ring-slate-100 outline-none focus:ring-2 focus:ring-red-600"/>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Alasan / Keterangan <span className="text-red-500">*</span></label>
-                    <textarea required value={formIzin.keterangan} onChange={e => setFormIzin({...formIzin, keterangan: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold h-24 outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-red-600" placeholder={formIzin.jenis === "Sakit" ? "Jelaskan kondisi sakit Anda..." : "Tuliskan alasan lengkap..."}/>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Foto Bukti (Dokumen/Surat)</label>
-                    <input type="file" onChange={e => setFormIzin({...formIzin, file: e.target.files?.[0]})} className="w-full p-3 bg-slate-50 rounded-2xl text-[10px] font-bold ring-1 ring-slate-100"/>
-                  </div>
-                  <button type="submit" className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-red-700 transition active:scale-95">Kirim Ke Admin</button>
-                </form>
-              </div>
-
-              <div className="bg-white/90 p-8 rounded-[32px] shadow-xl border border-slate-100 h-fit">
-                <h2 className="text-[11px] font-black uppercase text-slate-800 mb-6 tracking-widest border-l-4 border-slate-800 pl-4">Status Pengajuan Anda</h2>
-                <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-                  {myIzin.map((izin: any, idx: number) => (
-                    <div key={idx} className="p-5 bg-slate-50 rounded-[24px] border border-slate-100 hover:shadow-md transition">
-                      <div className="flex justify-between items-start mb-2">
-                        <span className={`text-[8px] font-black px-3 py-1 rounded-lg uppercase tracking-widest ${izin.status === 'Disetujui' ? 'bg-green-100 text-green-600' : izin.status === 'Ditolak' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
-                          {izin.status || 'DALAM PROSES'}
-                        </span>
-                        <p className="text-[8px] text-slate-400 font-bold">{new Date(izin.created_at).toLocaleDateString('id-ID')}</p>
-                      </div>
-                      <p className="text-[11px] font-black text-slate-800 uppercase mb-1">{izin.jenis}</p>
-                      <p className="text-[10px] text-slate-500 italic leading-relaxed">"{izin.keterangan}"</p>
-                    </div>
-                  ))}
-                  {myIzin.length === 0 && <div className="py-20 text-center text-slate-300 font-bold text-[9px] uppercase italic tracking-widest">Belum ada riwayat pengajuan</div>}
-                </div>
-              </div>
-          </div>
-        )}
-      </div>
-      <style jsx global>{`.bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }`}</style>
-    </div>
-  );
-}
+      }
 
 export default function GuruDashboard() {
   return (
