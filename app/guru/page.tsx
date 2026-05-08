@@ -3,6 +3,18 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Swal from "sweetalert2";
 
+// Ikon sederhana untuk memperjelas fitur
+const Icon = ({ name }: { name: string }) => {
+  switch (name) {
+    case "izin": return <span className="mr-2">📝</span>;
+    case "sakit": return <span className="mr-2">🤒</span>;
+    case "cuti": return <span className="mr-2">📅</span>;
+    case "dinas": return <span className="mr-2">✈️</span>;
+    case "upload": return <span className="mr-2">📁</span>;
+    default: return null;
+  }
+};
+
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -14,10 +26,10 @@ function DashboardContent() {
   const [myIzin, setMyIzin] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [formIzin, setFormIzin] = useState({ 
-    jenis: "Izin", keterangan: "", tanggal_mulai: "", tanggal_selesai: "", file: null as any 
+  const [formIzin, setFormIzin] = useState({
+    jenis: "Izin", keterangan: "", tanggal_mulai: "", tanggal_selesai: "", file: null as any
   });
-  
+
   const API_URL = "https://backendabsen.mejatika.com/api";
 
   const loadData = async () => {
@@ -37,26 +49,23 @@ function DashboardContent() {
         const resRekap = await fetch(`${API_URL}/admin/rekap-absensi`);
         const rekapJson = await resRekap.json();
         const allData = Array.isArray(rekapJson) ? rekapJson : (rekapJson.data || []);
-        
         const rawData = allData.filter((item: any) => String(item.guru_id) === String(guruIdFromUrl));
 
         const grouped = rawData.reduce((acc: any, curr: any) => {
-          const dateKey = new Date(curr.waktu_absen).toLocaleDateString('en-CA'); 
+          const dateKey = new Date(curr.waktu_absen).toLocaleDateString('en-CA');
           if (!acc[dateKey]) {
-            acc[dateKey] = { 
-              tanggalFormat: new Date(curr.waktu_absen).toLocaleDateString('id-ID', { day:'2-digit', month:'short', year:'numeric' }), 
+            acc[dateKey] = {
+              tanggalFormat: new Date(curr.waktu_absen).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
               masuk: null, pulang: null,
               statusMasuk: "-", statusPulang: "-",
               lokasiMasuk: "-", lokasiPulang: "-",
               rawDate: new Date(curr.waktu_absen),
-              isSpecialStatus: false 
+              isSpecialStatus: false
             };
           }
-          
           const st = curr.status.toLowerCase();
           const lokasiTxt = curr.keterangan_lokasi || "Lokasi tidak tercatat";
-          const specialKeywords = ['sakit', 'izin', 'cuti', 'dinas'];
-          const isSpecial = specialKeywords.some(key => st.includes(key));
+          const isSpecial = ['sakit', 'izin', 'cuti', 'dinas'].some(key => st.includes(key));
 
           if (isSpecial) {
             acc[dateKey].statusMasuk = curr.status.toUpperCase();
@@ -96,42 +105,37 @@ function DashboardContent() {
     formData.append("guru_id", guruIdFromUrl || "");
     formData.append("jenis", formIzin.jenis);
     formData.append("keterangan", formIzin.keterangan);
-    
-    // LOGIKA: Kirim tanggal HANYA JIKA bukan Sakit
+
     if (formIzin.jenis !== "Sakit") {
-        if (formIzin.tanggal_mulai) formData.append("tanggal_mulai", formIzin.tanggal_mulai);
-        if (formIzin.tanggal_selesai) formData.append("tanggal_selesai", formIzin.tanggal_selesai);
+      if (formIzin.tanggal_mulai) formData.append("tanggal_mulai", formIzin.tanggal_mulai);
+      if (formIzin.tanggal_selesai) formData.append("tanggal_selesai", formIzin.tanggal_selesai);
     }
-    
-    // Sesuaikan dengan nama field di PengajuanController Laravel (foto_bukti)
     if (formIzin.file) formData.append("foto_bukti", formIzin.file);
 
     Swal.fire({ title: "Mengirim...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     try {
-      // Endpoint pengajuan-izin disesuaikan dengan route Laravel kamu
-      const res = await fetch(`${API_URL}/pengajuan-izin`, { 
-        method: "POST", 
+      const res = await fetch(`${API_URL}/pengajuan-izin`, {
+        method: "POST",
         body: formData,
-        headers: { 'Accept': 'application/json' } 
+        headers: { 'Accept': 'application/json' }
       });
-      
       const result = await res.json();
       if (res.ok && result.success) {
         Swal.fire("Berhasil", "Pengajuan berhasil dikirim!", "success");
         setFormIzin({ jenis: "Izin", keterangan: "", tanggal_mulai: "", tanggal_selesai: "", file: null });
         loadData();
-      } else { 
-        Swal.fire("Gagal", result.message || "Periksa kembali data Anda", "error"); 
+      } else {
+        Swal.fire("Gagal", result.message || "Periksa kembali data Anda", "error");
       }
-    } catch (err) { 
-      Swal.fire("Error", "Masalah pada server.", "error"); 
+    } catch (err) {
+      Swal.fire("Error", "Masalah pada server.", "error");
     }
   };
 
   if (loading) return <div className="flex items-center justify-center min-h-screen bg-[#fdf5e6] font-black text-slate-400 uppercase tracking-widest">Sinkronisasi Database...</div>;
 
   return (
-    <div className="min-h-screen bg-[#fdf5e6] p-4 md:p-8 bg-batik animate-in fade-in duration-700">
+    <div className="min-h-screen bg-[#fdf5e6] p-4 md:p-8 bg-batik">
       <div className="max-w-7xl mx-auto">
         <header className="mb-6 flex flex-col md:flex-row items-center justify-between gap-4 bg-white/90 backdrop-blur-md p-6 rounded-[30px] shadow-sm border border-slate-100">
           <div className="flex items-center gap-4 w-full md:w-auto">
@@ -152,6 +156,7 @@ function DashboardContent() {
         </nav>
 
         {activeTab === "home" ? (
+          /* RIWAYAT ABSEN TETAP SAMA */
           <div className="bg-white/90 backdrop-blur-md rounded-[32px] shadow-xl border border-slate-100 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-center border-collapse">
@@ -172,8 +177,8 @@ function DashboardContent() {
                   {myRekap.map((r, i) => (
                     <tr key={i} className="hover:bg-slate-50/80 transition">
                       <td className="p-5 text-left font-black text-slate-700 border-r border-slate-100">{r.tanggalFormat}</td>
-                      <td className="p-5 text-slate-600 border-r border-slate-50">{(r.masuk && !r.isSpecialStatus) ? new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit', timeZone: 'UTC'}) : '-'}</td>
-                      <td className="p-5 text-slate-600 border-r border-slate-100">{(r.pulang && !r.isSpecialStatus) ? new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit', timeZone: 'UTC'}) : '-'}</td>
+                      <td className="p-5 text-slate-600 border-r border-slate-50">{(r.masuk && !r.isSpecialStatus) ? new Date(r.masuk.waktu_absen).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) : '-'}</td>
+                      <td className="p-5 text-slate-600 border-r border-slate-100">{(r.pulang && !r.isSpecialStatus) ? new Date(r.pulang.waktu_absen).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) : '-'}</td>
                       <td className="p-5 border-r border-slate-50">
                         <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase ${r.statusMasuk.includes('TERLAMBAT') ? 'bg-orange-100 text-orange-600' : r.statusMasuk === '-' ? 'text-slate-200' : 'bg-green-100 text-green-600'}`}>
                           {r.statusMasuk}
@@ -207,69 +212,145 @@ function DashboardContent() {
             </div>
           </div>
         ) : (
- 
-          <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-bottom duration-500">
-              <div className="bg-white/90 p-8 rounded-[32px] shadow-xl border border-slate-100">
-                <h2 className="text-[11px] font-black uppercase text-slate-800 mb-6 tracking-widest border-l-4 border-red-600 pl-4">Formulir Pengajuan</h2>
-                <form onSubmit={handleIzinSubmit} className="space-y-4">
+          /* PENGAJUAN IZIN - TAMPILAN YANG DIPERBAIKI */
+          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            {/* SISI KIRI: FORMULIR */}
+            <div className="lg:col-span-5 space-y-6">
+              <div className="bg-white p-8 rounded-[32px] shadow-2xl border-t-8 border-red-600 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10 text-6xl">✉️</div>
+                <h2 className="text-sm font-black uppercase text-slate-800 mb-6 tracking-widest flex items-center">
+                  <span className="w-8 h-8 bg-red-100 text-red-600 rounded-full flex items-center justify-center mr-3 text-xs">1</span>
+                  Isi Formulir Pengajuan
+                </h2>
+
+                <form onSubmit={handleIzinSubmit} className="space-y-5">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Jenis Absensi</label>
-                    <select value={formIzin.jenis} onChange={e => setFormIzin({...formIzin, jenis: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-red-600 transition">
-                      <option value="Izin">Izin</option>
-                      <option value="Sakit">Sakit</option>
-                      <option value="Cuti">Cuti</option>
-                      <option value="Dinas Luar">Dinas Luar</option>
+                    <label className="text-[10px] font-black uppercase text-slate-500 flex items-center">
+                      <Icon name={formIzin.jenis.toLowerCase().split(' ')[0]} /> Jenis Absensi
+                    </label>
+                    <select 
+                      value={formIzin.jenis} 
+                      onChange={e => setFormIzin({...formIzin, jenis: e.target.value})} 
+                      className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold border-2 border-slate-100 focus:border-red-600 focus:bg-white outline-none transition-all appearance-none"
+                    >
+                      <option value="Izin">Izin (Keperluan Pribadi)</option>
+                      <option value="Sakit">Sakit (Butuh Istirahat)</option>
+                      <option value="Cuti">Cuti Tahunan</option>
+                      <option value="Dinas Luar">Dinas Luar / Tugas</option>
                     </select>
                   </div>
 
-                  {/* LOGIKA TANGGAL: Hilang jika Sakit */}
                   {formIzin.jenis !== "Sakit" && (
-                    <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Dari Tanggal <span className="text-red-500">*</span></label>
-                        <input type="date" required value={formIzin.tanggal_mulai} onChange={e => setFormIzin({...formIzin, tanggal_mulai: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold ring-1 ring-slate-100 outline-none focus:ring-2 focus:ring-red-600"/>
+                    <div className="p-4 bg-red-50/50 rounded-2xl border border-red-100 grid grid-cols-1 gap-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black uppercase text-red-400">📅 Dari Tanggal</label>
+                          <input type="date" required value={formIzin.tanggal_mulai} onChange={e => setFormIzin({...formIzin, tanggal_mulai: e.target.value})} className="w-full p-3 bg-white rounded-xl text-xs font-bold border border-red-100 outline-none focus:ring-2 focus:ring-red-600"/>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black uppercase text-red-400">📅 Sampai Tanggal</label>
+                          <input type="date" required value={formIzin.tanggal_selesai} onChange={e => setFormIzin({...formIzin, tanggal_selesai: e.target.value})} className="w-full p-3 bg-white rounded-xl text-xs font-bold border border-red-100 outline-none focus:ring-2 focus:ring-red-600"/>
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Sampai Tanggal <span className="text-red-500">*</span></label>
-                        <input type="date" required value={formIzin.tanggal_selesai} onChange={e => setFormIzin({...formIzin, tanggal_selesai: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold ring-1 ring-slate-100 outline-none focus:ring-2 focus:ring-red-600"/>
-                      </div>
+                      <p className="text-[8px] text-red-400 font-bold italic">* Lewati jika hanya 1 hari (samakan tanggal)</p>
                     </div>
                   )}
 
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Alasan / Keterangan <span className="text-red-500">*</span></label>
-                    <textarea required value={formIzin.keterangan} onChange={e => setFormIzin({...formIzin, keterangan: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold h-24 outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-red-600" placeholder={formIzin.jenis === "Sakit" ? "Jelaskan kondisi sakit Anda..." : "Tuliskan alasan lengkap..."}/>
+                    <label className="text-[10px] font-black uppercase text-slate-500">✍️ Alasan Lengkap</label>
+                    <textarea 
+                      required 
+                      value={formIzin.keterangan} 
+                      onChange={e => setFormIzin({...formIzin, keterangan: e.target.value})} 
+                      className="w-full p-4 bg-slate-50 rounded-2xl text-xs font-bold h-28 border-2 border-slate-100 focus:border-red-600 focus:bg-white outline-none transition-all" 
+                      placeholder={formIzin.jenis === "Sakit" ? "Sebutkan gejala atau keterangan sakit..." : "Contoh: Menghadiri acara keluarga di luar kota..."}
+                    />
                   </div>
+
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400 ml-2">Foto Bukti (Dokumen/Surat)</label>
-                    <input type="file" onChange={e => setFormIzin({...formIzin, file: e.target.files?.[0]})} className="w-full p-3 bg-slate-50 rounded-2xl text-[10px] font-bold ring-1 ring-slate-100"/>
+                    <label className="text-[10px] font-black uppercase text-slate-500 flex items-center">
+                      <Icon name="upload" /> Unggah Bukti <span className="text-[8px] ml-2 text-slate-400">(JPG/PNG/PDF)</span>
+                    </label>
+                    <div className="relative group">
+                      <input 
+                        type="file" 
+                        onChange={e => setFormIzin({...formIzin, file: e.target.files?.[0]})} 
+                        className="w-full p-3 bg-slate-50 rounded-2xl text-[10px] font-bold border-2 border-dashed border-slate-200 group-hover:border-red-400 transition cursor-pointer"
+                      />
+                    </div>
                   </div>
-                  <button type="submit" className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-lg hover:bg-red-700 transition active:scale-95">Kirim Ke Admin</button>
+
+                  <button type="submit" className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-red-700 hover:shadow-red-200 transition-all active:scale-95 flex items-center justify-center">
+                    KIRIM PENGAJUAN SEKARANG 🚀
+                  </button>
                 </form>
               </div>
+            </div>
 
-              <div className="bg-white/90 p-8 rounded-[32px] shadow-xl border border-slate-100 h-fit">
-                <h2 className="text-[11px] font-black uppercase text-slate-800 mb-6 tracking-widest border-l-4 border-slate-800 pl-4">Status Pengajuan Anda</h2>
-                <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+            {/* SISI KANAN: LIST STATUS */}
+            <div className="lg:col-span-7 space-y-6">
+              <div className="bg-slate-800 p-8 rounded-[32px] shadow-xl text-white">
+                <h2 className="text-sm font-black uppercase mb-6 tracking-widest flex items-center">
+                   <span className="w-8 h-8 bg-slate-700 text-white rounded-full flex items-center justify-center mr-3 text-xs">2</span>
+                   Status Pengajuan Terakhir
+                </h2>
+                
+                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                   {myIzin.map((izin: any, idx: number) => (
-                    <div key={idx} className="p-5 bg-slate-50 rounded-[24px] border border-slate-100 hover:shadow-md transition">
-                      <div className="flex justify-between items-start mb-2">
-                        <span className={`text-[8px] font-black px-3 py-1 rounded-lg uppercase tracking-widest ${izin.status === 'Disetujui' ? 'bg-green-100 text-green-600' : izin.status === 'Ditolak' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
-                          {izin.status || 'DALAM PROSES'}
-                        </span>
-                        <p className="text-[8px] text-slate-400 font-bold">{new Date(izin.created_at).toLocaleDateString('id-ID')}</p>
+                    <div key={idx} className="group bg-slate-700/50 p-5 rounded-[24px] border border-slate-600 hover:bg-slate-700 transition-all">
+                      <div className="flex justify-between items-center mb-3">
+                        <div className="flex items-center gap-3">
+                           <div className={`w-2 h-2 rounded-full animate-pulse ${izin.status === 'Disetujui' ? 'bg-green-400' : izin.status === 'Ditolak' ? 'bg-red-400' : 'bg-orange-400'}`}></div>
+                           <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-tighter ${izin.status === 'Disetujui' ? 'bg-green-500/20 text-green-400' : izin.status === 'Ditolak' ? 'bg-red-500/20 text-red-400' : 'bg-orange-500/20 text-orange-400'}`}>
+                             {izin.status || 'MENUNGGU KONFIRMASI'}
+                           </span>
+                        </div>
+                        <p className="text-[9px] text-slate-400 font-mono font-bold uppercase">{new Date(izin.created_at).toLocaleDateString('id-ID', {day: '2-digit', month: 'long'})}</p>
                       </div>
-                      <p className="text-[11px] font-black text-slate-800 uppercase mb-1">{izin.jenis}</p>
-                      <p className="text-[10px] text-slate-500 italic leading-relaxed">"{izin.keterangan}"</p>
+
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-sm font-black uppercase text-white mb-1">{izin.jenis}</p>
+                          <p className="text-[11px] text-slate-300 italic leading-relaxed bg-slate-800/50 p-3 rounded-xl border-l-2 border-slate-500">
+                            "{izin.keterangan}"
+                          </p>
+                        </div>
+                        {izin.foto_bukti && (
+                           <a href={`https://backendabsen.mejatika.com/storage/${izin.foto_bukti}`} target="_blank" className="text-[8px] bg-white/10 p-2 rounded-lg hover:bg-white/20 transition uppercase font-black">Lihat Bukti 📎</a>
+                        )}
+                      </div>
+                      
+                      {/* Timeline kecil untuk tanggal izin */}
+                      {izin.tanggal_mulai && (
+                        <div className="mt-3 flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                           <span>{new Date(izin.tanggal_mulai).toLocaleDateString('id-ID')}</span>
+                           <span className="w-4 h-[1px] bg-slate-500"></span>
+                           <span>{new Date(izin.tanggal_selesai).toLocaleDateString('id-ID')}</span>
+                        </div>
+                      )}
                     </div>
                   ))}
-                  {myIzin.length === 0 && <div className="py-20 text-center text-slate-300 font-bold text-[9px] uppercase italic tracking-widest">Belum ada riwayat pengajuan</div>}
+
+                  {myIzin.length === 0 && (
+                    <div className="py-24 text-center">
+                      <div className="text-5xl mb-4 opacity-20">📭</div>
+                      <p className="text-slate-500 font-bold text-[10px] uppercase tracking-[0.2em]">Belum ada riwayat pengajuan izin</p>
+                    </div>
+                  )}
                 </div>
               </div>
+            </div>
+
           </div>
         )}
       </div>
-      <style jsx global>{`.bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }`}</style>
+      <style jsx global>{`
+        .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+      `}</style>
     </div>
   );
 }
