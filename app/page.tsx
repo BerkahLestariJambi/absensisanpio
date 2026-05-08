@@ -6,6 +6,7 @@ import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
 
 // --- HELPER VOICE ANNOUNCER ---
+// Digunakan untuk memberikan instruksi suara agar user tidak bingung saat proses scan
 let lastSpeechTime = 0;
 const playVoice = (text: string, cooldownMs: number = 4000) => {
   if (typeof window !== "undefined" && window.speechSynthesis) {
@@ -60,6 +61,7 @@ export default function HomeAbsensi() {
       try {
         const MODEL_URL = "/models";
 
+        // Memuat konfigurasi aplikasi dan model AI secara paralel
         const [configRes, _models] = await Promise.all([
           fetch("https://backendabsen.mejatika.com/api/setting-app").then((res) => res.json()),
           Promise.all([
@@ -71,6 +73,7 @@ export default function HomeAbsensi() {
 
         if (isMounted && configRes.success) setConfig(configRes.data);
 
+        // Mengambil data guru untuk referensi wajah
         const refRes = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
         const gurus = await refRes.json();
 
@@ -113,6 +116,7 @@ export default function HomeAbsensi() {
 
     loadSistem();
 
+    // Tracking GPS Realtime
     if ("geolocation" in navigator) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -132,7 +136,7 @@ export default function HomeAbsensi() {
     };
   }, [view]);
 
-  // --- 2. ENGINE SCANNER ---
+  // --- 2. ENGINE SCANNER (Looping Deteksi Wajah) ---
   useEffect(() => {
     if (view === "absen" && !isProcessing) {
       isLocked.current = false;
@@ -147,7 +151,6 @@ export default function HomeAbsensi() {
           const video = webcamRef.current.video;
           const canvas = canvasRef.current;
           
-          // Menggunakan clientWidth/Height agar matching dengan tampilan CSS object-cover
           const displaySize = { width: video.clientWidth, height: video.clientHeight };
           faceapi.matchDimensions(canvas, displaySize);
 
@@ -165,6 +168,7 @@ export default function HomeAbsensi() {
             const resizedDetections = faceapi.resizeResults(detection, displaySize);
             const { width } = resizedDetections.detection.box;
 
+            // Validasi jarak wajah (tidak boleh terlalu jauh/dekat)
             if (width >= 80 && width <= 350) {
               setScanStatus("locked");
 
@@ -238,6 +242,7 @@ export default function HomeAbsensi() {
       const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
       const checkData = await checkRes.json();
 
+      // Cek apakah sudah absen masuk dan pulang
       if (checkData.sudah_lengkap) {
         playVoice(`Halo ${checkData.nama}, Anda sudah melakukan absensi hari ini.`);
         await Swal.fire({
@@ -260,6 +265,7 @@ export default function HomeAbsensi() {
         return;
       }
 
+      // Logika Jam Pulang & Alasan Pulang Cepat
       const jumlahAbsen = checkData.jumlah_absen || 0;
       const sekarang = new Date();
       const jamSekarangWita = sekarang.toLocaleTimeString("en-GB", {
@@ -281,6 +287,7 @@ export default function HomeAbsensi() {
       const menitPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
       const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
+      // Jika sudah absen masuk (jumlahAbsen > 0) dan mencoba absen lagi sebelum jam pulang normal
       if (
         jumlahAbsen > 0 &&
         totalMenitSekarang >= menitPulangCepat &&
@@ -312,17 +319,6 @@ export default function HomeAbsensi() {
     } catch (e) {
       resetScanner();
     }
-  };
-
-  const resetScanner = () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    isLocked.current = false;
-    setIsProcessing(false);
-    faceBuffer.current = 0;
-    unknownBuffer.current = 0;
-    setScanStatus("searching");
-    setView("menu");
-    setPesan("⚡ Scanner Siap");
   };
 
   const sendToServer = async (
@@ -406,7 +402,17 @@ export default function HomeAbsensi() {
     }
   };
 
-  // Fungsi untuk memulai absen dengan Mode Fullscreen
+  const resetScanner = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    isLocked.current = false;
+    setIsProcessing(false);
+    faceBuffer.current = 0;
+    unknownBuffer.current = 0;
+    setScanStatus("searching");
+    setView("menu");
+    setPesan("⚡ Scanner Siap");
+  };
+
   const handleStartAbsen = () => {
     const elem = document.documentElement;
     if (elem.requestFullscreen) {
@@ -415,7 +421,7 @@ export default function HomeAbsensi() {
     setView("absen");
   };
 
-  // --- UI RENDER ---
+  // --- UI RENDER: MENU UTAMA ---
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
@@ -429,7 +435,7 @@ export default function HomeAbsensi() {
               />
             )}
           </div>
-          <h2 className="text-lg font-bold text-slate-700 uppercase mb-1">
+          <h2 className="text-lg font-bold text-slate-700 uppercase mb-1 leading-tight">
             {config?.nama_sekolah || "Memuat..."}
           </h2>
           <p className="text-[10px] text-slate-500 font-medium mb-6 uppercase tracking-wider">
@@ -475,6 +481,7 @@ export default function HomeAbsensi() {
     );
   }
 
+  // --- UI RENDER: SCANNER WAJAH ---
   return (
     <div className="fixed inset-0 z-[999] bg-black overflow-hidden flex flex-col items-center justify-center">
       {/* CONTAINER KAMERA FULLSCREEN */}
