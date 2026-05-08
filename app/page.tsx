@@ -6,7 +6,6 @@ import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
 
 // --- HELPER VOICE ANNOUNCER ---
-// Digunakan untuk memberikan instruksi suara agar user tidak bingung saat proses scan
 let lastSpeechTime = 0;
 const playVoice = (text: string, cooldownMs: number = 4000) => {
   if (typeof window !== "undefined" && window.speechSynthesis) {
@@ -46,22 +45,18 @@ export default function HomeAbsensi() {
 
   const router = useRouter();
 
-  // Konfigurasi video dinamis untuk Fullscreen
   const videoConstraints = {
     facingMode: "user" as const,
     width: typeof window !== "undefined" ? window.innerWidth : 1280,
     height: typeof window !== "undefined" ? window.innerHeight : 720,
   };
 
-  // --- 1. INITIAL LOAD (Model & Referensi) ---
+  // --- 1. INITIAL LOAD ---
   useEffect(() => {
     let isMounted = true;
-
     const loadSistem = async () => {
       try {
         const MODEL_URL = "/models";
-
-        // Memuat konfigurasi aplikasi dan model AI secara paralel
         const [configRes, _models] = await Promise.all([
           fetch("https://backendabsen.mejatika.com/api/setting-app").then((res) => res.json()),
           Promise.all([
@@ -73,7 +68,6 @@ export default function HomeAbsensi() {
 
         if (isMounted && configRes.success) setConfig(configRes.data);
 
-        // Mengambil data guru untuk referensi wajah
         const refRes = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
         const gurus = await refRes.json();
 
@@ -98,9 +92,7 @@ export default function HomeAbsensi() {
           })
         );
 
-        const validDescriptors = labeledDescriptors.filter(
-          (d) => d !== null
-        ) as faceapi.LabeledFaceDescriptors[];
+        const validDescriptors = labeledDescriptors.filter((d) => d !== null) as faceapi.LabeledFaceDescriptors[];
 
         if (isMounted && validDescriptors.length > 0) {
           setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.45));
@@ -116,7 +108,6 @@ export default function HomeAbsensi() {
 
     loadSistem();
 
-    // Tracking GPS Realtime
     if ("geolocation" in navigator) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -131,12 +122,10 @@ export default function HomeAbsensi() {
         navigator.geolocation.clearWatch(watchId);
       };
     }
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [view]);
 
-  // --- 2. ENGINE SCANNER (Looping Deteksi Wajah) ---
+  // --- 2. ENGINE SCANNER ---
   useEffect(() => {
     if (view === "absen" && !isProcessing) {
       isLocked.current = false;
@@ -146,11 +135,9 @@ export default function HomeAbsensi() {
 
       scanIntervalRef.current = setInterval(async () => {
         if (isProcessing || isLocked.current) return;
-
         if (webcamRef.current?.video?.readyState === 4 && canvasRef.current) {
           const video = webcamRef.current.video;
           const canvas = canvasRef.current;
-          
           const displaySize = { width: video.clientWidth, height: video.clientHeight };
           faceapi.matchDimensions(canvas, displaySize);
 
@@ -168,20 +155,15 @@ export default function HomeAbsensi() {
             const resizedDetections = faceapi.resizeResults(detection, displaySize);
             const { width } = resizedDetections.detection.box;
 
-            // Validasi jarak wajah (tidak boleh terlalu jauh/dekat)
             if (width >= 80 && width <= 350) {
               setScanStatus("locked");
-
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(resizedDetections.descriptor);
-
                 if (match.label !== "unknown") {
                   unknownBuffer.current = 0;
                   faceBuffer.current++;
                   setPesan("Wajah Terkunci... Mohon Diam");
-
                   if (faceBuffer.current === 1) playVoice("Wajah terkunci, mohon jangan bergerak.");
-
                   if (faceBuffer.current >= 2) {
                     isLocked.current = true;
                     setIsProcessing(true);
@@ -195,21 +177,17 @@ export default function HomeAbsensi() {
                   faceBuffer.current = 0;
                   unknownBuffer.current++;
                   setPesan("Mencocokkan...");
-
                   if (unknownBuffer.current >= 15) {
                     isLocked.current = true;
                     clearInterval(scanIntervalRef.current);
                     playVoice("Wajah tidak cocok. Mohon gunakan akun yang terdaftar.");
-
                     Swal.fire({
                       title: "WAJAH TIDAK COCOK",
                       text: "Wajah Anda tidak terdaftar atau tidak dikenali oleh sistem.",
                       icon: "error",
                       confirmButtonText: "Coba Lagi",
                       confirmButtonColor: "#dc2626",
-                    }).then(() => {
-                      resetScanner();
-                    });
+                    }).then(() => { resetScanner(); });
                   }
                 }
               }
@@ -217,11 +195,7 @@ export default function HomeAbsensi() {
               faceBuffer.current = 0;
               unknownBuffer.current = 0;
               setScanStatus("searching");
-              if (width < 80) {
-                setPesan("Dekatkan Wajah...");
-              } else {
-                setPesan("Terlalu Dekat!");
-              }
+              setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!");
             }
           } else {
             faceBuffer.current = 0;
@@ -235,14 +209,13 @@ export default function HomeAbsensi() {
     return () => clearInterval(scanIntervalRef.current);
   }, [view, faceMatcher, isProcessing]);
 
-  // --- 3. LOGIKA RECOGNITION SUCCESS ---
+  // --- 3. LOGIKA SUCCESS & SERVER ---
   const handleRecognitionSuccess = async (guruId: string) => {
     try {
       const screenshot = webcamRef.current?.getScreenshot();
       const checkRes = await fetch(`https://backendabsen.mejatika.com/api/cek-status-absen/${guruId}`);
       const checkData = await checkRes.json();
 
-      // Cek apakah sudah absen masuk dan pulang
       if (checkData.sudah_lengkap) {
         playVoice(`Halo ${checkData.nama}, Anda sudah melakukan absensi hari ini.`);
         await Swal.fire({
@@ -265,7 +238,6 @@ export default function HomeAbsensi() {
         return;
       }
 
-      // Logika Jam Pulang & Alasan Pulang Cepat
       const jumlahAbsen = checkData.jumlah_absen || 0;
       const sekarang = new Date();
       const jamSekarangWita = sekarang.toLocaleTimeString("en-GB", {
@@ -277,7 +249,6 @@ export default function HomeAbsensi() {
 
       const [h, m] = jamSekarangWita.split(":").map(Number);
       const totalMenitSekarang = h * 60 + m;
-
       const parseConfig = (t: string) => {
         if (!t) return 0;
         const [hh, mm] = t.split(/[.:]/).map(Number);
@@ -287,12 +258,7 @@ export default function HomeAbsensi() {
       const menitPulangCepat = parseConfig(config?.jam_pulang_cepat_mulai || "07:15");
       const menitPulangNormal = parseConfig(config?.jam_pulang_normal || "12:45");
 
-      // Jika sudah absen masuk (jumlahAbsen > 0) dan mencoba absen lagi sebelum jam pulang normal
-      if (
-        jumlahAbsen > 0 &&
-        totalMenitSekarang >= menitPulangCepat &&
-        totalMenitSekarang < menitPulangNormal
-      ) {
+      if (jumlahAbsen > 0 && totalMenitSekarang >= menitPulangCepat && totalMenitSekarang < menitPulangNormal) {
         playVoice("Jadwal pulang belum tiba. Silakan pilih alasan pulang cepat.");
         const { value: alasan } = await Swal.fire({
           title: "PULANG CEPAT",
@@ -306,28 +272,17 @@ export default function HomeAbsensi() {
           cancelButtonText: "Batal",
           confirmButtonColor: "#dc2626",
           allowOutsideClick: false,
-          inputValidator: (value) => {
-            if (!value) return "Alasan wajib dipilih!";
-          },
+          inputValidator: (value) => { if (!value) return "Alasan wajib dipilih!"; },
         });
-
         if (alasan) sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot, alasan);
         else resetScanner();
       } else {
         sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot);
       }
-    } catch (e) {
-      resetScanner();
-    }
+    } catch (e) { resetScanner(); }
   };
 
-  const sendToServer = async (
-    guruId: string,
-    lat: number,
-    lng: number,
-    image?: string | null,
-    statusTambahan?: string
-  ) => {
+  const sendToServer = async (guruId: string, lat: number, lng: number, image?: string | null, statusTambahan?: string) => {
     try {
       if (!navigator.onLine) {
         playVoice("Koneksi internet buruk. Mohon periksa jaringan Anda.");
@@ -335,15 +290,12 @@ export default function HomeAbsensi() {
         resetScanner();
         return;
       }
-
       if (lat === 0 || lng === 0) {
         playVoice("Gagal mengambil lokasi GPS.");
         await Swal.fire("GPS Belum Siap", "Mohon tunggu sinyal lokasi.", "warning");
         resetScanner();
         return;
       }
-
-      const clientTimeISO = new Date().toISOString();
 
       const res = await fetch("https://backendabsen.mejatika.com/api/simpan-absen", {
         method: "POST",
@@ -354,7 +306,7 @@ export default function HomeAbsensi() {
           lng,
           status_tambahan: statusTambahan,
           image: image,
-          client_time: clientTimeISO,
+          client_time: new Date().toISOString(),
         }),
       });
 
@@ -364,10 +316,7 @@ export default function HomeAbsensi() {
         playVoice("Absensi berhasil. Terima kasih.");
         await Swal.fire({
           title: "BERHASIL",
-          html: `<div class="text-sm"><b>${data.message}</b><br/>${new Date().toLocaleTimeString(
-            "id-ID",
-            { timeZone: "Asia/Makassar" }
-          )} WITA</div>`,
+          html: `<div class="text-sm"><b>${data.message}</b><br/>${new Date().toLocaleTimeString("id-ID", { timeZone: "Asia/Makassar" })} WITA</div>`,
           icon: "success",
           timer: 2000,
           showConfirmButton: false,
@@ -387,9 +336,7 @@ export default function HomeAbsensi() {
         if (isConfirmed) {
           if (document.fullscreenElement) document.exitFullscreen();
           router.push(`/guru?id=${guruId}`);
-        } else {
-          resetScanner();
-        }
+        } else { resetScanner(); }
       } else {
         playVoice("Gagal menyimpan absensi.");
         await Swal.fire("GAGAL", data.message, "error");
@@ -421,11 +368,20 @@ export default function HomeAbsensi() {
     setView("absen");
   };
 
-  // --- UI RENDER: MENU UTAMA ---
+  // --- UI RENDER: MENU UTAMA (Watermark Fixed) ---
   if (view === "menu") {
     return (
-      <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 bg-batik">
-        <div className="w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
+      <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        {/* WATERMARK LAYER */}
+        <div 
+          className="absolute inset-0 opacity-[0.15] pointer-events-none z-0" 
+          style={{ 
+            backgroundImage: `url('https://www.transparenttextures.com/patterns/batik.png')`,
+            backgroundRepeat: 'repeat'
+          }}
+        ></div>
+
+        <div className="relative z-10 w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
           <div className="w-24 h-24 mx-auto mb-4 flex items-center justify-center overflow-hidden bg-slate-50 rounded-2xl shadow-inner border border-slate-100">
             {config?.logo_sekolah && (
               <img
@@ -472,11 +428,6 @@ export default function HomeAbsensi() {
             🔐 LOGIN ADMIN / KEPSEK
           </button>
         </div>
-        <style jsx>{`
-          .bg-batik {
-            background-image: url("https://www.transparenttextures.com/patterns/batik.png");
-          }
-        `}</style>
       </div>
     );
   }
@@ -484,7 +435,6 @@ export default function HomeAbsensi() {
   // --- UI RENDER: SCANNER WAJAH ---
   return (
     <div className="fixed inset-0 z-[999] bg-black overflow-hidden flex flex-col items-center justify-center">
-      {/* CONTAINER KAMERA FULLSCREEN */}
       <div className="absolute inset-0 w-full h-full">
         <Webcam
           ref={webcamRef}
@@ -493,15 +443,9 @@ export default function HomeAbsensi() {
           videoConstraints={videoConstraints}
           className="absolute inset-0 w-full h-full object-cover"
         />
-
-        {/* CANVAS UNTUK DETECTION (Overlay) */}
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 w-full h-full z-10 object-cover"
-        />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 object-cover" />
       </div>
 
-      {/* OVERLAY INFORMASI (GPS & STATUS) */}
       <div className="absolute top-10 left-0 w-full flex flex-col items-center gap-2 z-40 px-6">
         <div className="bg-black/40 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20">
           <p className="text-[10px] text-cyan-400 font-mono tracking-widest uppercase">
@@ -510,7 +454,6 @@ export default function HomeAbsensi() {
         </div>
       </div>
 
-      {/* FRAME AREA WAJAH (UI GUIDELINE) */}
       <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
         <div
           className={`w-[280px] h-[380px] md:w-[320px] md:h-[450px] rounded-[60px] border-[3px] transition-all duration-500 
@@ -528,7 +471,6 @@ export default function HomeAbsensi() {
         </div>
       </div>
 
-      {/* BOTTOM CONTROLS & STATUS */}
       <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-8 pb-12 text-center">
         <div
           className={`mb-4 py-2 px-6 inline-block rounded-full text-[11px] font-black uppercase tracking-widest
@@ -563,13 +505,8 @@ export default function HomeAbsensi() {
           animation: pulse-glow 1.5s ease-in-out infinite;
         }
         @keyframes pulse-glow {
-          0%,
-          100% {
-            box-shadow: 0 0 20px rgba(34, 211, 238, 0.2);
-          }
-          50% {
-            box-shadow: 0 0 40px rgba(34, 211, 238, 0.6);
-          }
+          0%, 100% { box-shadow: 0 0 20px rgba(34, 211, 238, 0.2); }
+          50% { box-shadow: 0 0 40px rgba(34, 211, 238, 0.6); }
         }
       `}</style>
     </div>
