@@ -372,11 +372,20 @@ export default function HomeAbsensi() {
   if (view === "menu") {
     return (
       <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      {/* WATERMARK LAYER - DINAMIS */}
+      {/* WATERMARK LAYER - DINAMIS 
 <div 
   className="absolute inset-0 pointer-events-none z-0 opacity-[0.05]" 
   style={{ 
     backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='150'><text x='50%' y='50%' font-size='14' font-weight='bold' fill='black' font-family='Arial' text-anchor='middle' transform='rotate(-30 125 75)'>${config?.nama_sekolah || ''}</text></svg>")`,
+    backgroundRepeat: 'repeat'
+  }}
+></div>*/}
+        {/* WATERMARK LAYER - BIRU & RAPAT */}
+<div 
+  className="absolute inset-0 pointer-events-none z-0 opacity-[0.08]" 
+  style={{ 
+    // Menggunakan ukuran width/height lebih kecil (150x100) agar jumlah repetisi lebih banyak/rapat
+    backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='100'><text x='50%' y='50%' font-size='10' font-weight='bold' fill='%230000FF' font-family='sans-serif' text-anchor='middle' transform='rotate(-25 75 50)'>${config?.nama_sekolah || ''}</text></svg>")`,
     backgroundRepeat: 'repeat'
   }}
 ></div>
