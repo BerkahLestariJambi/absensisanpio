@@ -50,7 +50,6 @@ function DashboardContent() {
         const rekapJson = await resRekap.json();
         const allData = Array.isArray(rekapJson) ? rekapJson : (rekapJson.data || []);
         
-        // Perbaikan filter: Memastikan perbandingan String agar ID cocok 100%
         const rawData = allData.filter((item: any) => String(item.guru_id) === String(guruIdFromUrl));
 
         const grouped = rawData.reduce((acc: any, curr: any) => {
@@ -91,7 +90,6 @@ function DashboardContent() {
         const izinJson = await resIzin.json();
         const allIzin = Array.isArray(izinJson) ? izinJson : (izinJson.data || []);
         
-        // Filter daftar izin milik guru yang login
         const filteredIzin = allIzin.filter((i: any) => String(i.guru_id) === String(guruIdFromUrl));
         setMyIzin(filteredIzin.reverse());
       }
@@ -315,3 +313,48 @@ function DashboardContent() {
                           <p className="text-[11px] text-slate-300 italic leading-relaxed bg-slate-800/50 p-3 rounded-xl border-l-2 border-slate-500">
                             "{izin.keterangan}"
                           </p>
+                        </div>
+                        {izin.foto_bukti && (
+                           <a href={`https://backendabsen.mejatika.com/storage/${izin.foto_bukti}`} target="_blank" className="text-[8px] bg-white/10 p-2 rounded-lg hover:bg-white/20 transition uppercase font-black">Lihat Bukti 📎</a>
+                        )}
+                      </div>
+                      
+                      {izin.tanggal_mulai && (
+                        <div className="mt-3 flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                           <span>{new Date(izin.tanggal_mulai).toLocaleDateString('id-ID')}</span>
+                           <span className="w-4 h-[1px] bg-slate-500"></span>
+                           <span>{new Date(izin.tanggal_selesai).toLocaleDateString('id-ID')}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {myIzin.length === 0 && (
+                    <div className="py-24 text-center">
+                      <div className="text-5xl mb-4 opacity-20">📭</div>
+                      <p className="text-slate-500 font-bold text-[10px] uppercase tracking-[0.2em]">Belum ada riwayat pengajuan izin</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      <style jsx global>{`
+        .bg-batik { background-image: url("https://www.transparenttextures.com/patterns/batik.png"); }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+      `}</style>
+    </div>
+  );
+}
+
+export default function GuruDashboard() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-black text-slate-300 uppercase">SINKRONISASI DATA...</div>}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
