@@ -368,28 +368,34 @@ export default function HomeAbsensi() {
     setView("absen");
   };
 
-  // --- UI RENDER: MENU UTAMA (Watermark Fixed) ---
-  if (view === "menu") {
-    return (
-      <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      {/* WATERMARK LAYER - DINAMIS 
-<div 
-  className="absolute inset-0 pointer-events-none z-0 opacity-[0.05]" 
-  style={{ 
-    backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='150'><text x='50%' y='50%' font-size='14' font-weight='bold' fill='black' font-family='Arial' text-anchor='middle' transform='rotate(-30 125 75)'>${config?.nama_sekolah || ''}</text></svg>")`,
-    backgroundRepeat: 'repeat'
-  }}
-></div>*/}
-        {/* WATERMARK LAYER - BIRU & RAPAT */}
-<div 
-  className="absolute inset-0 pointer-events-none z-0 opacity-[0.08]" 
-  style={{ 
-    // Menggunakan ukuran width/height lebih kecil (150x100) agar jumlah repetisi lebih banyak/rapat
-    backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='100'><text x='50%' y='50%' font-size='10' font-weight='bold' fill='%230000FF' font-family='sans-serif' text-anchor='middle' transform='rotate(-25 75 50)'>${config?.nama_sekolah || ''}</text></svg>")`,
-    backgroundRepeat: 'repeat'
-  }}
-></div>
-        <div className="relative z-10 w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200">
+// --- UI RENDER: MENU UTAMA ---
+if (view === "menu") {
+  return (
+    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      
+      {/* 1. WATERMARK BACKGROUND LAYAR (BIRU & RAPAT) */}
+      <div 
+        className="absolute inset-0 pointer-events-none z-0 opacity-[0.08]" 
+        style={{ 
+          backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='100'><text x='50%' y='50%' font-size='10' font-weight='bold' fill='%230000FF' font-family='sans-serif' text-anchor='middle' transform='rotate(-25 75 50)'>${config?.nama_sekolah || ''}</text></svg>")`,
+          backgroundRepeat: 'repeat'
+        }}
+      ></div>
+
+      {/* 2. KARTU UTAMA (FRAME) */}
+      <div className="relative z-10 w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200 overflow-hidden">
+        
+        {/* WATERMARK KHUSUS DI DALAM FRAME KARTU */}
+        <div 
+          className="absolute inset-0 pointer-events-none z-0 opacity-[0.06]" 
+          style={{ 
+            backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='80'><text x='50%' y='50%' font-size='9' font-weight='bold' fill='%230000FF' font-family='sans-serif' text-anchor='middle' transform='rotate(-25 60 40)'>${config?.nama_sekolah || ''}</text></svg>")`,
+            backgroundRepeat: 'repeat'
+          }}
+        ></div>
+
+        {/* KONTEN DI DALAM FRAME (Beri z-10 agar berada di atas watermark frame) */}
+        <div className="relative z-10">
           <div className="w-24 h-24 mx-auto mb-4 flex items-center justify-center overflow-hidden bg-slate-50 rounded-2xl shadow-inner border border-slate-100">
             {config?.logo_sekolah && (
               <img
@@ -406,7 +412,7 @@ export default function HomeAbsensi() {
             TP {config?.tahun_pelajaran} | SEM {config?.semester}
           </p>
 
-          <div className="my-6 p-3 bg-amber-50 rounded-xl border border-dashed border-amber-200">
+          <div className="my-6 p-3 bg-amber-50/80 backdrop-blur-sm rounded-xl border border-dashed border-amber-200">
             <p className="text-[11px] text-amber-700 font-bold uppercase italic">
               {coords ? "📍 Lokasi Terdeteksi" : "⌛ Mencari Sinyal GPS..."}
             </p>
@@ -437,9 +443,9 @@ export default function HomeAbsensi() {
           </button>
         </div>
       </div>
-    );
-  }
-
+    </div>
+  );
+}
   // --- UI RENDER: SCANNER WAJAH ---
   return (
     <div className="fixed inset-0 z-[999] bg-black overflow-hidden flex flex-col items-center justify-center">
