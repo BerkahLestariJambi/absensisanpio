@@ -322,7 +322,7 @@ export default function AdminDashboard() {
                       <td className="p-4 text-center border-r min-w-[130px]">
                         {r.data_masuk ? (
                           <div className="flex flex-col gap-1">
-                            <span className="text-xs font-black text-slate-700">{new Date(r.data_masuk.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}</span>
+                            <span className="text-xs font-black text-slate-700">{new Date(r.data_masuk.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit', timeZone: 'UTC'})}</span>
                             <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${r.data_masuk.status.includes('Terlambat') ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-700'}`}>{r.data_masuk.status}</span>
                           </div>
                         ) : <span className="text-slate-200 text-[10px] font-black italic">BELUM SCAN</span>}
@@ -330,7 +330,7 @@ export default function AdminDashboard() {
                       <td className="p-4 text-center border-r min-w-[130px]">
                         {r.data_pulang ? (
                           <div className="flex flex-col gap-1">
-                            <span className="text-xs font-black text-blue-700">{new Date(r.data_pulang.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}</span>
+                            <span className="text-xs font-black text-blue-700">{new Date(r.data_pulang.waktu_absen).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit', timeZone: 'UTC'})}</span>
                             <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-blue-100 text-blue-700">{r.data_pulang.status}</span>
                           </div>
                         ) : <span className="text-slate-200 text-[10px] font-black italic">BELUM SCAN</span>}
