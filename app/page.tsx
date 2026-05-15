@@ -387,7 +387,7 @@ if (view === "menu") {
         
         {/* WATERMARK KHUSUS DI DALAM FRAME KARTU */}
         <div 
-          className="absolute inset-0 pointer-events-none z-0 opacity-[0.04]" 
+          className="absolute inset-0 pointer-events-none z-0 opacity-[0.12]" 
           style={{ 
             backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='80'><text x='50%' y='50%' font-size='9' font-weight='bold' fill='%230000FF' font-family='sans-serif' text-anchor='middle' transform='rotate(-25 60 40)'>${config?.nama_sekolah || ''}</text></svg>")`,
             backgroundRepeat: 'repeat'
