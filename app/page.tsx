@@ -45,10 +45,11 @@ export default function HomeAbsensi() {
 
   const router = useRouter();
 
+  // Dimensi video diubah agar pas di dalam frame container, bukan mengikuti ukuran layar window
   const videoConstraints = {
     facingMode: "user" as const,
-    width: typeof window !== "undefined" ? window.innerWidth : 1280,
-    height: typeof window !== "undefined" ? window.innerHeight : 720,
+    width: 480,
+    height: 640,
   };
 
   // --- 1. INITIAL LOAD ---
@@ -155,7 +156,7 @@ export default function HomeAbsensi() {
             const resizedDetections = faceapi.resizeResults(detection, displaySize);
             const { width } = resizedDetections.detection.box;
 
-            if (width >= 80 && width <= 350) {
+            if (width >= 40 && width <= 250) { // Toleransi ukuran disesuaikan karena frame mengecil
               setScanStatus("locked");
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(resizedDetections.descriptor);
@@ -195,7 +196,7 @@ export default function HomeAbsensi() {
               faceBuffer.current = 0;
               unknownBuffer.current = 0;
               setScanStatus("searching");
-              setPesan(width < 80 ? "Dekatkan Wajah..." : "Terlalu Dekat!");
+              setPesan(width < 40 ? "Dekatkan Wajah..." : "Terlalu Dekat!");
             }
           } else {
             faceBuffer.current = 0;
@@ -229,7 +230,6 @@ export default function HomeAbsensi() {
           allowOutsideClick: false,
         }).then((result) => {
           if (result.isConfirmed) {
-            if (document.fullscreenElement) document.exitFullscreen();
             router.push(`/guru?id=${guruId}`);
           } else {
             resetScanner();
@@ -334,7 +334,6 @@ export default function HomeAbsensi() {
         });
 
         if (isConfirmed) {
-          if (document.fullscreenElement) document.exitFullscreen();
           router.push(`/guru?id=${guruId}`);
         } else { resetScanner(); }
       } else {
@@ -350,7 +349,6 @@ export default function HomeAbsensi() {
   };
 
   const resetScanner = () => {
-    if (document.fullscreenElement) document.exitFullscreen();
     isLocked.current = false;
     setIsProcessing(false);
     faceBuffer.current = 0;
@@ -361,19 +359,14 @@ export default function HomeAbsensi() {
   };
 
   const handleStartAbsen = () => {
-    const elem = document.documentElement;
-    if (elem.requestFullscreen) {
-      elem.requestFullscreen().catch(() => {});
-    }
-    setView("absen");
+    setView("absen"); // Langsung ubah view tanpa memicu Fullscreen layar
   };
 
-// --- UI RENDER: MENU UTAMA ---
-if (view === "menu") {
+  // --- UI RENDER: LAYOUT YANG DISATUKAN ---
   return (
-    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative overflow-hidden">
       
-      {/* 1. WATERMARK BACKGROUND LAYAR (BIRU & RAPAT) */}
+      {/* 1. WATERMARK BACKGROUND LAYAR */}
       <div 
         className="absolute inset-0 pointer-events-none z-0 opacity-[0.08]" 
         style={{ 
@@ -383,7 +376,7 @@ if (view === "menu") {
       ></div>
 
       {/* 2. KARTU UTAMA (FRAME) */}
-      <div className="relative z-10 w-full max-w-sm bg-white/95 rounded-[40px] shadow-2xl p-10 text-center border border-amber-200 overflow-hidden">
+      <div className="relative z-10 w-full max-w-md bg-white/95 rounded-[40px] shadow-2xl p-6 md:p-8 text-center border border-amber-200 overflow-hidden">
         
         {/* WATERMARK KHUSUS DI DALAM FRAME KARTU */}
         <div 
@@ -394,124 +387,135 @@ if (view === "menu") {
           }}
         ></div>
 
-        {/* KONTEN DI DALAM FRAME (Beri z-10 agar berada di atas watermark frame) */}
+        {/* KONTEN UTAMA */}
         <div className="relative z-10">
-          <div className="w-24 h-24 mx-auto mb-4 flex items-center justify-center overflow-hidden bg-slate-50 rounded-2xl shadow-inner border border-slate-100">
-            {config?.logo_sekolah && (
-              <img
-                src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`}
-                alt="Logo"
-                className="max-h-full object-contain"
+          
+          {/* HEADER INFORMASI SEKOLAH */}
+          <div className="flex items-center justify-center gap-3 mb-4 border-b border-slate-100 pb-3">
+            <div className="w-12 h-12 flex items-center justify-center overflow-hidden bg-slate-50 rounded-xl shadow-inner border border-slate-100 shrink-0">
+              {config?.logo_sekolah && (
+                <img
+                  src={`https://backendabsen.mejatika.com/storage/${config.logo_sekolah}`}
+                  alt="Logo"
+                  className="max-h-full object-contain"
+                />
+              )}
+            </div>
+            <div className="text-left">
+              <h2 className="text-sm font-bold text-slate-700 uppercase leading-tight">
+                {config?.nama_sekolah || "Memuat..."}
+              </h2>
+              <p className="text-[9px] text-slate-500 font-medium uppercase tracking-wider">
+                TP {config?.tahun_pelajaran} | SEM {config?.semester}
+              </p>
+            </div>
+          </div>
+
+          {/* KONDISI TAMPILAN KAMERA FRAME / ATAU HURUF UMUM */}
+          {view === "menu" ? (
+            /* TAMPILAN AWAL SEBELUM KLIK ABSEN */
+            <div className="py-8 flex flex-col items-center">
+              <div className="w-32 h-32 bg-amber-50 rounded-full flex items-center justify-center text-5xl shadow-inner border border-amber-100 mb-4 animate-pulse">
+                👤
+              </div>
+              <p className="text-slate-600 text-sm font-semibold px-4">
+                Silakan klik tombol di bawah untuk memulai pemindaian wajah.
+              </p>
+              
+              <div className="my-4 p-2.5 bg-amber-50/80 backdrop-blur-sm rounded-xl border border-dashed border-amber-200 inline-block">
+                <p className="text-[11px] text-amber-700 font-bold uppercase italic">
+                  {coords ? "📍 Lokasi Terdeteksi" : "⌛ Mencari Sinyal GPS..."}
+                </p>
+              </div>
+            </div>
+          ) : (
+            /* TAMPILAN KAMERA JIKA VIEW === 'ABSEN' (Hanya berbentuk Frame di dalam Kartu) */
+            <div className="relative w-full aspect-[3/4] max-w-[320px] mx-auto bg-black rounded-3xl overflow-hidden shadow-md border-2 border-slate-200 mb-4">
+              
+              {/* WEBCAM */}
+              <Webcam
+                ref={webcamRef}
+                audio={false}
+                screenshotFormat="image/jpeg"
+                videoConstraints={videoConstraints}
+                className="absolute inset-0 w-full h-full object-cover"
               />
-            )}
-          </div>
-          <h2 className="text-lg font-bold text-slate-700 uppercase mb-1 leading-tight">
-            {config?.nama_sekolah || "Memuat..."}
-          </h2>
-          <p className="text-[10px] text-slate-500 font-medium mb-6 uppercase tracking-wider">
-            TP {config?.tahun_pelajaran} | SEM {config?.semester}
-          </p>
+              {/* CANVAS OVERLAY UNTUK FACEAPI */}
+              <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 object-cover" />
 
-          <div className="my-6 p-3 bg-amber-50/80 backdrop-blur-sm rounded-xl border border-dashed border-amber-200">
-            <p className="text-[11px] text-amber-700 font-bold uppercase italic">
-              {coords ? "📍 Lokasi Terdeteksi" : "⌛ Mencari Sinyal GPS..."}
-            </p>
-          </div>
+              {/* INDIKATOR TARGET WAJAH (OVAL BORDER DI DALAM KAMERA) */}
+              <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none p-6">
+                <div
+                  className={`w-full h-full rounded-[50px] border-[3px] transition-all duration-300 
+                  ${
+                    scanStatus === "searching"
+                      ? "border-white/40 border-dashed"
+                      : scanStatus === "locked"
+                      ? "border-cyan-400 shadow-[0_0_30px_rgba(34,211,238,0.4)]"
+                      : "border-green-500 shadow-[0_0_40px_rgba(34,197,94,0.5)]"
+                  }`}
+                >
+                  {scanStatus !== "searching" && (
+                    <div className="absolute inset-0 rounded-[46px] animate-pulse-glow border-4 border-transparent"></div>
+                  )}
+                </div>
+              </div>
 
-          <button
-            disabled={!faceMatcher || !coords}
-            onClick={handleStartAbsen}
-            className={`w-full py-5 ${
-              !faceMatcher || !coords
-                ? "bg-slate-400 cursor-not-allowed"
-                : "bg-red-600 hover:bg-red-700 active:scale-95"
-            } text-white rounded-2xl font-black shadow-lg text-lg flex items-center justify-center gap-3 transition-all`}
-          >
-            <span className="text-2xl">👤</span>{" "}
-            {faceMatcher
-              ? coords
-                ? "ABSEN SEKARANG"
-                : "MENUNGGU GPS..."
-              : "LOADING DATA..."}
-          </button>
+              {/* BADGE TEXT STATUS SCANNING */}
+              <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 z-30 w-11/12">
+                <div className="bg-black/70 backdrop-blur-md rounded-2xl py-2 px-3 text-center border border-white/10 shadow-lg">
+                  <span className={`text-xs font-black uppercase tracking-wide block ${scanStatus === "success" ? "text-green-400" : "text-amber-300"}`}>
+                    {pesan}
+                  </span>
+                </div>
+              </div>
 
-          <button
-            onClick={() => router.push("/admin/login")}
-            className="mt-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors"
-          >
-            🔐 LOGIN ADMIN / KEPSEK
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-  // --- UI RENDER: SCANNER WAJAH ---
-  return (
-    <div className="fixed inset-0 z-[999] bg-black overflow-hidden flex flex-col items-center justify-center">
-      <div className="absolute inset-0 w-full h-full">
-        <Webcam
-          ref={webcamRef}
-          audio={false}
-          screenshotFormat="image/jpeg"
-          videoConstraints={videoConstraints}
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 object-cover" />
-      </div>
+              {/* INDIKATOR KOORDINAT KECIL DI ATAS KAMERA */}
+              <div className="absolute top-2 left-2 z-30">
+                <span className="bg-black/50 text-[8px] text-cyan-400 font-mono px-2 py-0.5 rounded-full backdrop-blur-sm">
+                  {coords ? `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}` : "GPS.."}
+                </span>
+              </div>
+            </div>
+          )}
 
-      <div className="absolute top-10 left-0 w-full flex flex-col items-center gap-2 z-40 px-6">
-        <div className="bg-black/40 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20">
-          <p className="text-[10px] text-cyan-400 font-mono tracking-widest uppercase">
-            📍 {coords ? `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : "Mencari GPS..."}
-          </p>
-        </div>
-      </div>
+          {/* TOMBOL AKSI DYNAMIC */}
+          {view === "menu" ? (
+            <button
+              disabled={!faceMatcher || !coords}
+              onClick={handleStartAbsen}
+              className={`w-full py-4 ${
+                !faceMatcher || !coords
+                  ? "bg-slate-400 cursor-not-allowed"
+                  : "bg-red-600 hover:bg-red-700 active:scale-95"
+              } text-white rounded-2xl font-black shadow-lg text-base flex items-center justify-center gap-3 transition-all`}
+            >
+              <span>📷</span>{" "}
+              {faceMatcher
+                ? coords
+                  ? "ABSEN SEKARANG"
+                  : "MENUNGGU GPS..."
+                : "LOADING DATA..."}
+            </button>
+          ) : (
+            <button
+              onClick={resetScanner}
+              className="w-full py-3 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-200 rounded-2xl text-xs font-bold tracking-widest transition-all active:scale-95"
+            >
+              ❌ BATALKAN ABSENSI
+            </button>
+          )}
 
-      <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-        <div
-          className={`w-[280px] h-[380px] md:w-[320px] md:h-[450px] rounded-[60px] border-[3px] transition-all duration-500 
-          ${
-            scanStatus === "searching"
-              ? "border-white/30 border-dashed"
-              : scanStatus === "locked"
-              ? "border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.5)] scale-105"
-              : "border-green-500 shadow-[0_0_60px_rgba(34,197,94,0.6)] scale-110"
-          }`}
-        >
-          {scanStatus !== "searching" && (
-            <div className="absolute inset-0 rounded-[50px] animate-pulse-glow border-4 border-transparent"></div>
+          {/* BACK TO LOGIN ADMIN */}
+          {view === "menu" && (
+            <button
+              onClick={() => router.push("/admin/login")}
+              className="mt-6 text-[11px] font-bold text-slate-400 uppercase tracking-widest block w-full text-center hover:text-red-500 transition-colors"
+            >
+              🔐 LOGIN ADMIN / KEPSEK
+            </button>
           )}
         </div>
-      </div>
-
-      <div className="absolute bottom-0 w-full z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-8 pb-12 text-center">
-        <div
-          className={`mb-4 py-2 px-6 inline-block rounded-full text-[11px] font-black uppercase tracking-widest
-          ${
-            scanStatus === "searching"
-              ? "bg-slate-800 text-slate-400"
-              : "bg-cyan-500 text-white animate-bounce"
-          }`}
-        >
-          {scanStatus === "searching" ? "Posisikan Wajah Anda" : "Wajah Terkunci"}
-        </div>
-
-        <div className="bg-white/10 backdrop-blur-2xl rounded-[30px] p-6 border border-white/20 max-w-sm mx-auto shadow-2xl">
-          <span
-            className={`text-lg font-black uppercase italic tracking-wide block transition-colors
-            ${scanStatus === "success" ? "text-green-400" : "text-amber-300"}`}
-          >
-            {pesan}
-          </span>
-        </div>
-
-        <button
-          onClick={resetScanner}
-          className="mt-8 bg-white/10 hover:bg-red-500/20 backdrop-blur-md border border-white/20 px-8 py-3 rounded-2xl text-white text-[11px] font-bold tracking-widest transition-all active:scale-95"
-        >
-          BATALKAN ABSENSI
-        </button>
       </div>
 
       <style jsx>{`
@@ -519,8 +523,8 @@ if (view === "menu") {
           animation: pulse-glow 1.5s ease-in-out infinite;
         }
         @keyframes pulse-glow {
-          0%, 100% { box-shadow: 0 0 20px rgba(34, 211, 238, 0.2); }
-          50% { box-shadow: 0 0 40px rgba(34, 211, 238, 0.6); }
+          0%, 100% { box-shadow: 0 0 15px rgba(34, 211, 238, 0.2); }
+          50% { box-shadow: 0 0 30px rgba(34, 211, 238, 0.5); }
         }
       `}</style>
     </div>
