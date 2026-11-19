@@ -314,7 +314,7 @@ function AdminDashboardContent() {
     openPrintWindow("REKAPITULASI KEHADIRAN PEGAWAI", subInfo, buildRekapTableHtml());
   };
 
-  // --- 2. EXPORT & CETAK LAPORAN IZIN & SAKIT (DENGAN ALASAN PENOLAKAN) ---
+  // --- 2. EXPORT & CETAK LAPORAN IZIN & SAKIT (MENGGUNAKAN alasan_penolakan) ---
   const buildIzinTableHtml = () => {
     const rows = filteredIzins
       .map((i, idx) => {
@@ -339,7 +339,6 @@ function AdminDashboardContent() {
           : i.jenis === "Sakit"
           ? "Hingga Sembuh"
           : "-";
-        const alasanTolak = i.catatan_admin || i.alasan_penolakan;
 
         return `
           <tr>
@@ -353,8 +352,8 @@ function AdminDashboardContent() {
             <td style="text-align:center; font-weight:bold;">
               ${i.status}
               ${
-                i.status === "Ditolak" && alasanTolak
-                  ? `<br/><span style="font-size:9px; font-weight:normal; color:#b91c1c;">Alasan: ${alasanTolak}</span>`
+                i.status === "Ditolak" && i.alasan_penolakan
+                  ? `<br/><span style="font-size:9px; font-weight:normal; color:#b91c1c;">Alasan: ${i.alasan_penolakan}</span>`
                   : ""
               }
             </td>
@@ -374,7 +373,7 @@ function AdminDashboardContent() {
             <th>Rentang Tanggal</th>
             <th>Keterangan / Alasan</th>
             <th>Tgl Pengajuan</th>
-            <th>Status & Catatan</th>
+            <th>Status & Alasan Penolakan</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -621,7 +620,7 @@ function AdminDashboardContent() {
   };
 
   const updateStatusIzin = async (id: number, status: string) => {
-    let catatanAdmin: string | null = null;
+    let alasanPenolakan: string | null = null;
 
     if (status === "Ditolak") {
       const { value: alasan, isConfirmed } = await Swal.fire({
@@ -643,7 +642,7 @@ function AdminDashboardContent() {
       });
 
       if (!isConfirmed) return;
-      catatanAdmin = alasan.trim();
+      alasanPenolakan = alasan.trim();
     }
 
     try {
@@ -656,7 +655,7 @@ function AdminDashboardContent() {
         },
         body: JSON.stringify({
           status,
-          catatan_admin: catatanAdmin,
+          alasan_penolakan: alasanPenolakan,
         }),
       });
 
@@ -1100,7 +1099,7 @@ function AdminDashboardContent() {
           </div>
         )}
 
-        {/* TAB IZIN & SAKIT (DENGAN ALASAN PENOLAKAN KEPALA SEKOLAH) */}
+        {/* TAB IZIN & SAKIT (MENGGUNAKAN alasan_penolakan) */}
         {activeTab === "izin" && (
           <div className="space-y-4">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
@@ -1180,7 +1179,7 @@ function AdminDashboardContent() {
                       <th className="p-6 text-left">Nama Pegawai</th>
                       <th className="p-6 text-left">Jenis & Rentang Waktu</th>
                       <th className="p-6 text-center">Lampiran</th>
-                      <th className="p-6 text-center">Status & Catatan</th>
+                      <th className="p-6 text-center">Status & Alasan Penolakan</th>
                       <th className="p-6 text-center">Aksi</th>
                     </tr>
                   </thead>
@@ -1190,7 +1189,6 @@ function AdminDashboardContent() {
                       const buktiUrl =
                         i.bukti_dokumen_url ||
                         (buktiFile ? `https://backendabsen.mejatika.com/storage/${buktiFile}` : null);
-                      const alasanTolak = i.catatan_admin || i.alasan_penolakan;
 
                       return (
                         <tr key={i.id} className="hover:bg-slate-50/80 transition">
@@ -1263,12 +1261,12 @@ function AdminDashboardContent() {
                               {i.status}
                             </span>
 
-                            {i.status === "Ditolak" && alasanTolak && (
+                            {i.status === "Ditolak" && i.alasan_penolakan && (
                               <div className="mt-2 max-w-[220px] mx-auto bg-red-50/80 border border-red-100 rounded-xl p-2 text-[10px] text-red-700 font-medium text-left">
                                 <span className="font-black uppercase text-[8px] block text-red-500">
                                   Alasan Penolakan:
                                 </span>
-                                "{alasanTolak}"
+                                "{i.alasan_penolakan}"
                               </div>
                             )}
                           </td>
