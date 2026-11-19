@@ -17,8 +17,8 @@ export default function AdminDashboard() {
   const [filterStartDate, setFilterStartDate] = useState("");
   const [filterEndDate, setFilterEndDate] = useState("");
 
-  // Filter Periode untuk Tab Izin
-  const [periodeIzinMode, setPeriodeIzinMode] = useState<"semua" | "minggu" | "bulan" | "semester">("semua");
+  // Filter Periode & Tanggal untuk Tab Izin
+  const [periodeIzinMode, setPeriodeIzinMode] = useState<"semua" | "minggu" | "bulan" | "semester" | "custom">("semua");
   const [izinStartDate, setIzinStartDate] = useState("");
   const [izinEndDate, setIzinEndDate] = useState("");
 
@@ -37,9 +37,9 @@ export default function AdminDashboard() {
   const API_URL = "https://backendabsen.mejatika.com/api";
 
   // --- HELPER HITUNG RENTANG TANGGAL PRESET ---
-  const calculateDateRange = (mode: "semua" | "minggu" | "bulan" | "semester") => {
+  const calculateDateRange = (mode: "semua" | "minggu" | "bulan" | "semester" | "custom") => {
     const now = new Date();
-    if (mode === "semua") return { start: "", end: "" };
+    if (mode === "semua" || mode === "custom") return { start: "", end: "" };
 
     if (mode === "minggu") {
       const day = now.getDay();
@@ -72,18 +72,22 @@ export default function AdminDashboard() {
     return { start: `${year}-01-01`, end: `${year}-06-30` };
   };
 
-  const handleSelectPeriode = (mode: "semua" | "minggu" | "bulan" | "semester") => {
-    setPeriodeMode(mode);
-    const { start, end } = calculateDateRange(mode);
-    setFilterStartDate(start);
-    setFilterEndDate(end);
+  const handlePeriodeDropdownChange = (value: "semua" | "minggu" | "bulan" | "semester" | "custom") => {
+    setPeriodeMode(value);
+    if (value !== "custom") {
+      const { start, end } = calculateDateRange(value);
+      setFilterStartDate(start);
+      setFilterEndDate(end);
+    }
   };
 
-  const handleSelectPeriodeIzin = (mode: "semua" | "minggu" | "bulan" | "semester") => {
-    setPeriodeIzinMode(mode);
-    const { start, end } = calculateDateRange(mode);
-    setIzinStartDate(start);
-    setIzinEndDate(end);
+  const handlePeriodeIzinDropdownChange = (value: "semua" | "minggu" | "bulan" | "semester" | "custom") => {
+    setPeriodeIzinMode(value);
+    if (value !== "custom") {
+      const { start, end } = calculateDateRange(value);
+      setIzinStartDate(start);
+      setIzinEndDate(end);
+    }
   };
 
   // --- LOGIKA FILTERING & BADGE IZIN ---
@@ -111,9 +115,9 @@ export default function AdminDashboard() {
   const formatPeriodeLabel = (mode: string, start: string, end: string) => {
     const labelMap: Record<string, string> = {
       semua: "Semua Periode",
-      minggu: "Rekap Mingguan",
-      bulan: "Rekap Bulanan",
-      semester: "Rekap Semester",
+      minggu: "Rekap Per Minggu",
+      bulan: "Rekap Per Bulan",
+      semester: "Rekap Per Semester",
       custom: "Periode Pilihan",
     };
     const range = start || end ? `(${start || "Awal"} s/d ${end || "Sekarang"})` : "";
@@ -640,7 +644,7 @@ export default function AdminDashboard() {
       </nav>
 
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {/* TAB PEGAWAI (DENGAN EXPORT EXCEL & CETAK PDF) */}
+        {/* TAB PEGAWAI */}
         {activeTab === "guru" && (
           <div className="space-y-4">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
@@ -719,83 +723,64 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB KEHADIRAN */}
+        {/* TAB KEHADIRAN (DROPDOWN PERIODE + EXPORT) */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
-            <div className="p-6 bg-slate-50/50 border-b border-slate-100 space-y-4">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                  <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">
-                    Rekapitulasi Kehadiran Pegawai ({filteredRekap.length} Data)
-                  </h3>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
-                    {formatPeriodeLabel(periodeMode, filterStartDate, filterEndDate)} • TP {tahunPelajaran} (SEM {semester})
-                  </p>
-                </div>
-
-                {/* PRESET PERIODE: SEMUA | PER MINGGU | PER BULAN | PER SEMESTER */}
-                <div className="flex flex-wrap gap-1.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
-                  {[
-                    { id: "semua", label: "Semua" },
-                    { id: "minggu", label: "Per Minggu" },
-                    { id: "bulan", label: "Per Bulan" },
-                    { id: "semester", label: "Per Semester" },
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => handleSelectPeriode(item.id as any)}
-                      className={`px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all ${
-                        periodeMode === item.id
-                          ? "bg-red-600 text-white shadow-md"
-                          : "text-slate-500 hover:bg-slate-100"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
+            <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+              <div>
+                <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">
+                  Rekapitulasi Kehadiran Pegawai ({filteredRekap.length} Data)
+                </h3>
+                <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
+                  {formatPeriodeLabel(periodeMode, filterStartDate, filterEndDate)} • TP {tahunPelajaran} (SEM {semester})
+                </p>
               </div>
 
-              {/* RENTANG TANGGAL MANUAL & TOMBOL EXPORT */}
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-3 border-t border-slate-200/60">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[9px] font-black uppercase text-slate-400">Rentang Tanggal:</span>
-                  <input
-                    type="date"
-                    value={filterStartDate}
-                    onChange={(e) => {
-                      setPeriodeMode("custom");
-                      setFilterStartDate(e.target.value);
-                    }}
-                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none focus:border-red-500"
-                  />
-                  <span className="text-[10px] font-bold text-slate-400">s/d</span>
-                  <input
-                    type="date"
-                    value={filterEndDate}
-                    onChange={(e) => {
-                      setPeriodeMode("custom");
-                      setFilterEndDate(e.target.value);
-                    }}
-                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none focus:border-red-500"
-                  />
-                </div>
+              {/* DROPDOWN PERIODE + INPUT TANGGAL (JIKA CUSTOM) + TOMBOL EXPORT */}
+              <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                <select
+                  value={periodeMode}
+                  onChange={(e) => handlePeriodeDropdownChange(e.target.value as any)}
+                  className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase text-slate-700 outline-none focus:border-red-600 shadow-sm cursor-pointer"
+                >
+                  <option value="semua">📅 Semua Periode</option>
+                  <option value="minggu">📆 Per Minggu (Minggu Ini)</option>
+                  <option value="bulan">🗓️ Per Bulan (Bulan Ini)</option>
+                  <option value="semester">🎓 Per Semester (Semester Ini)</option>
+                  <option value="custom">✏️ Pilih Rentang Tanggal...</option>
+                </select>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <button
-                    onClick={handleExportRekapExcel}
-                    className="flex-1 sm:flex-none justify-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
-                  >
-                    📊 EXPORT EXCEL
-                  </button>
+                {periodeMode === "custom" && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={filterStartDate}
+                      onChange={(e) => setFilterStartDate(e.target.value)}
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none focus:border-red-500"
+                    />
+                    <span className="text-[10px] font-bold text-slate-400">s/d</span>
+                    <input
+                      type="date"
+                      value={filterEndDate}
+                      onChange={(e) => setFilterEndDate(e.target.value)}
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none focus:border-red-500"
+                    />
+                  </div>
+                )}
 
-                  <button
-                    onClick={handlePrintRekap}
-                    className="flex-1 sm:flex-none justify-center bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
-                  >
-                    🖨️ CETAK / PDF
-                  </button>
-                </div>
+                <button
+                  onClick={handleExportRekapExcel}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
+                >
+                  📊 EXPORT EXCEL
+                </button>
+
+                <button
+                  onClick={handlePrintRekap}
+                  className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
+                >
+                  🖨️ CETAK / PDF
+                </button>
               </div>
             </div>
 
@@ -918,7 +903,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB IZIN & SAKIT (DENGAN FILTER PERIODE & EXPORT EXCEL / CETAK PDF) */}
+        {/* TAB IZIN & SAKIT (DROPDOWN PERIODE + EXPORT) */}
         {activeTab === "izin" && (
           <div className="space-y-4">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
@@ -944,26 +929,37 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              {/* FILTER PERIODE & EXPORT IZIN */}
+              {/* DROPDOWN PERIODE & EXPORT IZIN */}
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex gap-1 bg-white p-1 rounded-xl border border-slate-200">
-                  {[
-                    { id: "semua", label: "Semua" },
-                    { id: "minggu", label: "Minggu" },
-                    { id: "bulan", label: "Bulan" },
-                    { id: "semester", label: "Semester" },
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => handleSelectPeriodeIzin(item.id as any)}
-                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition ${
-                        periodeIzinMode === item.id ? "bg-red-600 text-white" : "text-slate-500 hover:bg-slate-100"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
+                <select
+                  value={periodeIzinMode}
+                  onChange={(e) => handlePeriodeIzinDropdownChange(e.target.value as any)}
+                  className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase text-slate-700 outline-none focus:border-red-600 shadow-sm cursor-pointer"
+                >
+                  <option value="semua">📅 Semua Periode</option>
+                  <option value="minggu">📆 Per Minggu</option>
+                  <option value="bulan">🗓️ Per Bulan</option>
+                  <option value="semester">🎓 Per Semester</option>
+                  <option value="custom">✏️ Rentang Tanggal...</option>
+                </select>
+
+                {periodeIzinMode === "custom" && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={izinStartDate}
+                      onChange={(e) => setIzinStartDate(e.target.value)}
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none"
+                    />
+                    <span className="text-[10px] font-bold text-slate-400">s/d</span>
+                    <input
+                      type="date"
+                      value={izinEndDate}
+                      onChange={(e) => setIzinEndDate(e.target.value)}
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none"
+                    />
+                  </div>
+                )}
 
                 <button
                   onClick={handleExportIzinExcel}
