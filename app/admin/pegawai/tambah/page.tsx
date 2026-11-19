@@ -28,7 +28,6 @@ export default function TambahPegawai() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
 
-  // --- STATE PERANGKAT KAMERA ---
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
 
@@ -38,10 +37,9 @@ export default function TambahPegawai() {
     nuptk: "",
     jabatan: "Guru",
     jenjang: "SMP",
-    foto_referensi: "", // Opsional, boleh kosong
+    foto_referensi: "",
   });
 
-  // 1. Fungsi untuk Mengambil Daftar Kamera
   const refreshDevices = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -60,7 +58,6 @@ export default function TambahPegawai() {
     }
   };
 
-  // 2. Inisialisasi Model & Monitoring USB
   useEffect(() => {
     const initApp = async () => {
       try {
@@ -78,7 +75,6 @@ export default function TambahPegawai() {
     };
 
     initApp();
-
     navigator.mediaDevices.addEventListener("devicechange", refreshDevices);
 
     return () => {
@@ -153,6 +149,11 @@ export default function TambahPegawai() {
     }
   };
 
+  const cleanOptional = (val: string) => {
+    const t = val.trim();
+    return t === "" || t === "-" ? null : t;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -176,9 +177,9 @@ export default function TambahPegawai() {
       const token = localStorage.getItem("auth_token");
 
       const payload: any = {
-        nama_lengkap: formData.nama_lengkap,
-        nip: formData.nip,
-        nuptk: formData.nuptk,
+        nama_lengkap: formData.nama_lengkap.trim(),
+        nip: cleanOptional(formData.nip),
+        nuptk: cleanOptional(formData.nuptk),
         jabatan: formData.jabatan,
         jenjang: formData.jenjang,
       };
@@ -257,19 +258,23 @@ export default function TambahPegawai() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2">NIP</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
+                    NIP <span className="text-slate-300 font-normal">(Opsional)</span>
+                  </label>
                   <input
                     value={formData.nip}
-                    placeholder="NIP..."
+                    placeholder="Kosongkan jika tidak ada"
                     className="p-4 w-full bg-slate-50 rounded-2xl border border-slate-100 font-bold text-sm outline-none"
                     onChange={(e) => setFormData({ ...formData, nip: e.target.value })}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2">NUPTK</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2">
+                    NUPTK <span className="text-slate-300 font-normal">(Opsional)</span>
+                  </label>
                   <input
                     value={formData.nuptk}
-                    placeholder="NUPTK..."
+                    placeholder="Kosongkan jika tidak ada"
                     className="p-4 w-full bg-slate-50 rounded-2xl border border-slate-100 font-bold text-sm outline-none"
                     onChange={(e) => setFormData({ ...formData, nuptk: e.target.value })}
                   />
