@@ -52,14 +52,17 @@ export default function HomeAbsensi() {
     height: 640,
   };
 
-  // --- 1. INITIAL LOAD ---
+  // --- 1. INITIAL LOAD (SUPER CEPAT DENGAN JSON DESCRIPTOR + AUTO FALLBACK) ---
   useEffect(() => {
     let isMounted = true;
     const loadSistem = async () => {
       try {
         const MODEL_URL = "/models";
-        const [configRes, _models] = await Promise.all([
+
+        // Fetch setting, data referensi guru, dan model AI secara paralel
+        const [configRes, refRes, _models] = await Promise.all([
           fetch("https://backendabsen.mejatika.com/api/setting-app").then((res) => res.json()),
+          fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi").then((res) => res.json()),
           Promise.all([
             faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
             faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
@@ -69,35 +72,80 @@ export default function HomeAbsensi() {
 
         if (isMounted && configRes.success) setConfig(configRes.data);
 
-        const refRes = await fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi");
-        const gurus = await refRes.json();
+        const validDescriptors: faceapi.LabeledFaceDescriptors[] = [];
 
-        const labeledDescriptors = await Promise.all(
-          gurus.map(async (guru: any) => {
-            if (!guru.foto_referensi) return null;
-            try {
-              const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
-              const img = await faceapi.fetchImage(imgUrl);
-              const fullDesc = await faceapi.detectSingleFace(
-                img,
-                new faceapi.TinyFaceDetectorOptions({ inputSize: 160 })
-              )
-                .withFaceLandmarks()
-                .withFaceDescriptor();
-              return fullDesc
-                ? new faceapi.LabeledFaceDescriptors(guru.id.toString(), [fullDesc.descriptor])
-                : null;
-            } catch (e) {
-              return null;
+        await Promise.all(
+          refRes.map(async (guru: any) => {
+            // JALUR CEPAT: Jika face_descriptor JSON sudah tersimpan di database
+            if (guru.face_descriptor) {
+              try {
+                const parsedArray =
+                  typeof guru.face_descriptor === "string"
+                    ? JSON.parse(guru.face_descriptor)
+                    : guru.face_descriptor;
+
+                if (Array.isArray(parsedArray) && parsedArray.length === 128) {
+                  validDescriptors.push(
+                    new faceapi.LabeledFaceDescriptors(guru.id.toString(), [
+                      new Float32Array(parsedArray),
+                    ])
+                  );
+                  return;
+                }
+              } catch (err) {
+                console.error(`Descriptor JSON rusak untuk guru ID ${guru.id}:`, err);
+              }
+            }
+
+            // JALUR FALLBACK (SEKALI SAJA): Jika data lama belum punya face_descriptor
+            if (guru.foto_referensi) {
+              try {
+                const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
+                const img = await faceapi.fetchImage(imgUrl);
+                const fullDesc = await faceapi
+                  .detectSingleFace(
+                    img,
+                    new faceapi.TinyFaceDetectorOptions({ inputSize: 160 })
+                  )
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+
+                if (fullDesc) {
+                  const descriptorArray = Array.from(fullDesc.descriptor);
+                  validDescriptors.push(
+                    new faceapi.LabeledFaceDescriptors(guru.id.toString(), [
+                      fullDesc.descriptor,
+                    ])
+                  );
+
+                  // Kirim diam-diam ke Laravel agar tersimpan permanen di DB (kunjungan berikutnya instan)
+                  fetch(
+                    `https://backendabsen.mejatika.com/api/admin/guru/update-descriptor/${guru.id}`,
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        face_descriptor: JSON.stringify(descriptorArray),
+                      }),
+                    }
+                  ).catch((err) =>
+                    console.error("Gagal auto-save descriptor:", err)
+                  );
+                }
+              } catch (e) {
+                console.error(`Gagal memproses foto referensi ID ${guru.id}:`, e);
+              }
             }
           })
         );
 
-        const validDescriptors = labeledDescriptors.filter((d) => d !== null) as faceapi.LabeledFaceDescriptors[];
-
-        if (isMounted && validDescriptors.length > 0) {
-          setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.45));
-          if (view === "menu") setPesan("⚡ Scanner Siap");
+        if (isMounted) {
+          if (validDescriptors.length > 0) {
+            setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.45));
+            if (view === "menu") setPesan("⚡ Scanner Siap");
+          } else {
+            setPesan("Belum ada data wajah terdaftar");
+          }
         }
       } catch (err) {
         if (isMounted) {
@@ -123,7 +171,9 @@ export default function HomeAbsensi() {
         navigator.geolocation.clearWatch(watchId);
       };
     }
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, [view]);
 
   // --- 2. ENGINE SCANNER ---
@@ -142,10 +192,11 @@ export default function HomeAbsensi() {
           const displaySize = { width: video.clientWidth, height: video.clientHeight };
           faceapi.matchDimensions(canvas, displaySize);
 
-          const detection = await faceapi.detectSingleFace(
-            video,
-            new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
-          )
+          const detection = await faceapi
+            .detectSingleFace(
+              video,
+              new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
+            )
             .withFaceLandmarks()
             .withFaceDescriptor();
 
@@ -156,7 +207,8 @@ export default function HomeAbsensi() {
             const resizedDetections = faceapi.resizeResults(detection, displaySize);
             const { width } = resizedDetections.detection.box;
 
-            if (width >= 40 && width <= 250) { // Toleransi ukuran disesuaikan karena frame mengecil
+            if (width >= 40 && width <= 250) {
+              // Toleransi ukuran disesuaikan karena frame mengecil
               setScanStatus("locked");
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(resizedDetections.descriptor);
@@ -188,7 +240,9 @@ export default function HomeAbsensi() {
                       icon: "error",
                       confirmButtonText: "Coba Lagi",
                       confirmButtonColor: "#dc2626",
-                    }).then(() => { resetScanner(); });
+                    }).then(() => {
+                      resetScanner();
+                    });
                   }
                 }
               }
@@ -272,17 +326,27 @@ export default function HomeAbsensi() {
           cancelButtonText: "Batal",
           confirmButtonColor: "#dc2626",
           allowOutsideClick: false,
-          inputValidator: (value) => { if (!value) return "Alasan wajib dipilih!"; },
+          inputValidator: (value) => {
+            if (!value) return "Alasan wajib dipilih!";
+          },
         });
         if (alasan) sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot, alasan);
         else resetScanner();
       } else {
         sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot);
       }
-    } catch (e) { resetScanner(); }
+    } catch (e) {
+      resetScanner();
+    }
   };
 
-  const sendToServer = async (guruId: string, lat: number, lng: number, image?: string | null, statusTambahan?: string) => {
+  const sendToServer = async (
+    guruId: string,
+    lat: number,
+    lng: number,
+    image?: string | null,
+    statusTambahan?: string
+  ) => {
     try {
       if (!navigator.onLine) {
         playVoice("Koneksi internet buruk. Mohon periksa jaringan Anda.");
@@ -335,7 +399,9 @@ export default function HomeAbsensi() {
 
         if (isConfirmed) {
           router.push(`/guru?id=${guruId}`);
-        } else { resetScanner(); }
+        } else {
+          resetScanner();
+        }
       } else {
         playVoice("Gagal menyimpan absensi.");
         await Swal.fire("GAGAL", data.message, "error");
@@ -365,31 +431,28 @@ export default function HomeAbsensi() {
   // --- UI RENDER: LAYOUT YANG DISATUKAN ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      
       {/* 1. WATERMARK BACKGROUND LAYAR */}
-      <div 
-        className="absolute inset-0 pointer-events-none z-0 opacity-[0.08]" 
-        style={{ 
-          backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='100'><text x='50%' y='50%' font-size='10' font-weight='bold' fill='%230000FF' font-family='sans-serif' text-anchor='middle' transform='rotate(-25 75 50)'>${config?.nama_sekolah || ''}</text></svg>")`,
-          backgroundRepeat: 'repeat'
+      <div
+        className="absolute inset-0 pointer-events-none z-0 opacity-[0.08]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='100'><text x='50%' y='50%' font-size='10' font-weight='bold' fill='%230000FF' font-family='sans-serif' text-anchor='middle' transform='rotate(-25 75 50)'>${config?.nama_sekolah || ""}</text></svg>")`,
+          backgroundRepeat: "repeat",
         }}
       ></div>
 
       {/* 2. KARTU UTAMA (FRAME) */}
       <div className="relative z-10 w-full max-w-md bg-white/95 rounded-[40px] shadow-2xl p-6 md:p-8 text-center border border-amber-200 overflow-hidden">
-        
         {/* WATERMARK KHUSUS DI DALAM FRAME KARTU */}
-        <div 
-          className="absolute inset-0 pointer-events-none z-0 opacity-[0.12]" 
-          style={{ 
-            backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='80'><text x='50%' y='50%' font-size='9' font-weight='bold' fill='%230000FF' font-family='sans-serif' text-anchor='middle' transform='rotate(-25 60 40)'>${config?.nama_sekolah || ''}</text></svg>")`,
-            backgroundRepeat: 'repeat'
+        <div
+          className="absolute inset-0 pointer-events-none z-0 opacity-[0.12]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='80'><text x='50%' y='50%' font-size='9' font-weight='bold' fill='%230000FF' font-family='sans-serif' text-anchor='middle' transform='rotate(-25 60 40)'>${config?.nama_sekolah || ""}</text></svg>")`,
+            backgroundRepeat: "repeat",
           }}
         ></div>
 
         {/* KONTEN UTAMA */}
         <div className="relative z-10">
-          
           {/* HEADER INFORMASI SEKOLAH */}
           <div className="flex items-center justify-center gap-3 mb-4 border-b border-slate-100 pb-3">
             <div className="w-12 h-12 flex items-center justify-center overflow-hidden bg-slate-50 rounded-xl shadow-inner border border-slate-100 shrink-0">
@@ -421,7 +484,7 @@ export default function HomeAbsensi() {
               <p className="text-slate-600 text-sm font-semibold px-4">
                 Silakan klik tombol di bawah untuk memulai pemindaian wajah.
               </p>
-              
+
               <div className="my-4 p-2.5 bg-amber-50/80 backdrop-blur-sm rounded-xl border border-dashed border-amber-200 inline-block">
                 <p className="text-[11px] text-amber-700 font-bold uppercase italic">
                   {coords ? "📍 Lokasi Terdeteksi" : "⌛ Mencari Sinyal GPS..."}
@@ -431,7 +494,6 @@ export default function HomeAbsensi() {
           ) : (
             /* TAMPILAN KAMERA JIKA VIEW === 'ABSEN' (Hanya berbentuk Frame di dalam Kartu) */
             <div className="relative w-full aspect-[3/4] max-w-[320px] mx-auto bg-black rounded-3xl overflow-hidden shadow-md border-2 border-slate-200 mb-4">
-              
               {/* WEBCAM */}
               <Webcam
                 ref={webcamRef}
@@ -464,7 +526,11 @@ export default function HomeAbsensi() {
               {/* BADGE TEXT STATUS SCANNING */}
               <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 z-30 w-11/12">
                 <div className="bg-black/70 backdrop-blur-md rounded-2xl py-2 px-3 text-center border border-white/10 shadow-lg">
-                  <span className={`text-xs font-black uppercase tracking-wide block ${scanStatus === "success" ? "text-green-400" : "text-amber-300"}`}>
+                  <span
+                    className={`text-xs font-black uppercase tracking-wide block ${
+                      scanStatus === "success" ? "text-green-400" : "text-amber-300"
+                    }`}
+                  >
                     {pesan}
                   </span>
                 </div>
