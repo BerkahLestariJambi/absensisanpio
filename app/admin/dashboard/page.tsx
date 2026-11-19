@@ -12,7 +12,8 @@ export default function AdminDashboard() {
   const [rekap, setRekap] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Filter tanggal untuk rekap & export
+  // Filter Periode & Tanggal untuk Rekap & Export
+  const [periodeMode, setPeriodeMode] = useState<"semua" | "minggu" | "bulan" | "semester" | "custom">("semua");
   const [filterStartDate, setFilterStartDate] = useState("");
   const [filterEndDate, setFilterEndDate] = useState("");
 
@@ -26,6 +27,59 @@ export default function AdminDashboard() {
 
   const API_URL = "https://backendabsen.mejatika.com/api";
 
+  // --- HELPER PILIH PRESET PERIODE (MINGGU / BULAN / SEMESTER) ---
+  const handleSelectPeriode = (mode: "semua" | "minggu" | "bulan" | "semester") => {
+    setPeriodeMode(mode);
+    const now = new Date();
+
+    if (mode === "semua") {
+      setFilterStartDate("");
+      setFilterEndDate("");
+      return;
+    }
+
+    if (mode === "minggu") {
+      // Senin s/d Minggu pada minggu berjalan
+      const day = now.getDay(); // 0 (Minggu) - 6 (Sabtu)
+      const diffToMonday = day === 0 ? -6 : 1 - day;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + diffToMonday);
+
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+
+      setFilterStartDate(monday.toLocaleDateString("en-CA"));
+      setFilterEndDate(sunday.toLocaleDateString("en-CA"));
+      return;
+    }
+
+    if (mode === "bulan") {
+      // Tanggal 1 s/d akhir bulan berjalan
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+      setFilterStartDate(firstDay.toLocaleDateString("en-CA"));
+      setFilterEndDate(lastDay.toLocaleDateString("en-CA"));
+      return;
+    }
+
+    if (mode === "semester") {
+      // Kalender Akademik Indonesia:
+      // Bulan 0-5 (Jan - Jun) = Semester Genap
+      // Bulan 6-11 (Jul - Des) = Semester Ganjil
+      const year = now.getFullYear();
+      const month = now.getMonth();
+
+      if (month >= 6) {
+        setFilterStartDate(`${year}-07-01`);
+        setFilterEndDate(`${year}-12-31`);
+      } else {
+        setFilterStartDate(`${year}-01-01`);
+        setFilterEndDate(`${year}-06-30`);
+      }
+    }
+  };
+
   // --- LOGIKA FILTERING & BADGE IZIN ---
   const getPendingCountLocal = (jenis: string) => {
     if (jenis === "Semua") return izins.filter((i) => i.status === "Pending").length;
@@ -37,23 +91,36 @@ export default function AdminDashboard() {
 
   // --- FILTER REKAP BERDASARKAN TANGGAL ---
   const filteredRekap = rekap.filter((r) => {
-    const itemDate = new Date(r.waktu_absen).toISOString().slice(0, 10);
+    const itemDate = new Date(r.waktu_absen).toLocaleDateString("en-CA");
     if (filterStartDate && itemDate < filterStartDate) return false;
     if (filterEndDate && itemDate > filterEndDate) return false;
     return true;
   });
 
-  // --- FUNGSI EXPORT EXCEL (.XLS / HTML TABLE YANG RAPI DI EXCEL) ---
+  // Label Keterangan Periode Aktif untuk Judul File Export & Cetak
+  const getPeriodeLabel = () => {
+    const labelMap: Record<string, string> = {
+      semua: "Semua Periode",
+      minggu: "Rekap Mingguan",
+      bulan: "Rekap Bulanan",
+      semester: "Rekap Semester",
+      custom: "Periode Pilihan",
+    };
+    const range =
+      filterStartDate || filterEndDate
+        ? `(${filterStartDate || "Awal"} s/d ${filterEndDate || "Sekarang"})`
+        : "";
+    return `${labelMap[periodeMode]} ${range}`.trim();
+  };
+
+  // --- FUNGSI EXPORT EXCEL (.XLS) ---
   const handleExportExcel = () => {
     if (filteredRekap.length === 0) {
-      Swal.fire("Data Kosong", "Tidak ada data rekap absensi untuk diexport.", "info");
+      Swal.fire("Data Kosong", "Tidak ada data rekap absensi pada periode ini.", "info");
       return;
     }
 
-    const periodeText =
-      filterStartDate || filterEndDate
-        ? `Periode: ${filterStartDate || "Awal"} s/d ${filterEndDate || "Sekarang"}`
-        : "Semua Periode";
+    const periodeText = getPeriodeLabel();
 
     let tableHTML = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
@@ -123,7 +190,7 @@ export default function AdminDashboard() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Rekap_Absensi_${schoolName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xls`;
+    a.download = `Rekap_Absensi_${periodeMode.toUpperCase()}_${schoolName.replace(/\s+/g, "_")}.xls`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -133,17 +200,14 @@ export default function AdminDashboard() {
   // --- FUNGSI CETAK / EXPORT PDF ---
   const handlePrintRekap = () => {
     if (filteredRekap.length === 0) {
-      Swal.fire("Data Kosong", "Tidak ada data rekap absensi untuk dicetak.", "info");
+      Swal.fire("Data Kosong", "Tidak ada data rekap absensi pada periode ini.", "info");
       return;
     }
 
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
 
-    const periodeText =
-      filterStartDate || filterEndDate
-        ? `Periode: ${filterStartDate || "Awal"} s/d ${filterEndDate || "Sekarang"}`
-        : "Semua Periode";
+    const periodeText = getPeriodeLabel();
 
     const rowsHtml = filteredRekap
       .map((r, idx) => {
@@ -182,7 +246,7 @@ export default function AdminDashboard() {
     printWindow.document.write(`
       <html>
         <head>
-          <title>Cetak Rekap Absensi - ${schoolName}</title>
+          <title>Cetak ${periodeText} - ${schoolName}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 20px; color: #1e293b; }
             h2 { margin: 0; text-transform: uppercase; }
@@ -492,59 +556,83 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB KEHADIRAN (DENGAN FILTER TANGGAL & EXPORT EXCEL / CETAK PDF) */}
+        {/* TAB KEHADIRAN (DENGAN PILIHAN PER MINGGU, PER BULAN, PER SEMESTER + EXPORT) */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
-            <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-              <div>
-                <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">Rekap Absensi Harian</h3>
-                <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
-                  1 Baris Per Pegawai / Hari • Zona Waktu: WITA
-                </p>
+            <div className="p-6 bg-slate-50/50 border-b border-slate-100 space-y-4">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">
+                    Rekap Absensi Pegawai ({filteredRekap.length} Data)
+                  </h3>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
+                    {getPeriodeLabel()} • Zona Waktu: WITA
+                  </p>
+                </div>
+
+                {/* TOMBOL PRESET PERIODE: SEMUA | PER MINGGU | PER BULAN | PER SEMESTER */}
+                <div className="flex flex-wrap gap-1.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
+                  {[
+                    { id: "semua", label: "Semua" },
+                    { id: "minggu", label: "Per Minggu" },
+                    { id: "bulan", label: "Per Bulan" },
+                    { id: "semester", label: "Per Semester" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => handleSelectPeriode(item.id as any)}
+                      className={`px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all ${
+                        periodeMode === item.id
+                          ? "bg-red-600 text-white shadow-md"
+                          : "text-slate-500 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* FILTER TANGGAL & TOMBOL EXPORT */}
-              <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-                <input
-                  type="date"
-                  value={filterStartDate}
-                  onChange={(e) => setFilterStartDate(e.target.value)}
-                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none focus:border-red-500"
-                  title="Dari Tanggal"
-                />
-                <span className="text-[10px] font-bold text-slate-400">s/d</span>
-                <input
-                  type="date"
-                  value={filterEndDate}
-                  onChange={(e) => setFilterEndDate(e.target.value)}
-                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none focus:border-red-500"
-                  title="Sampai Tanggal"
-                />
-                {(filterStartDate || filterEndDate) && (
-                  <button
-                    onClick={() => {
-                      setFilterStartDate("");
-                      setFilterEndDate("");
+              {/* BARIS KEDUA: RENTANG TANGGAL MANUAL & TOMBOL EXPORT EXCEL / PDF */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-3 border-t border-slate-200/60">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[9px] font-black uppercase text-slate-400">Rentang Tanggal:</span>
+                  <input
+                    type="date"
+                    value={filterStartDate}
+                    onChange={(e) => {
+                      setPeriodeMode("custom");
+                      setFilterStartDate(e.target.value);
                     }}
-                    className="px-2.5 py-2 bg-slate-200 text-slate-600 rounded-xl text-[9px] font-black hover:bg-slate-300 transition"
+                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none focus:border-red-500"
+                  />
+                  <span className="text-[10px] font-bold text-slate-400">s/d</span>
+                  <input
+                    type="date"
+                    value={filterEndDate}
+                    onChange={(e) => {
+                      setPeriodeMode("custom");
+                      setFilterEndDate(e.target.value);
+                    }}
+                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 outline-none focus:border-red-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button
+                    onClick={handleExportExcel}
+                    className="flex-1 sm:flex-none justify-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
                   >
-                    RESET
+                    📊 EXPORT EXCEL
                   </button>
-                )}
 
-                <button
-                  onClick={handleExportExcel}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
-                >
-                  📊 EXPORT EXCEL
-                </button>
-
-                <button
-                  onClick={handlePrintRekap}
-                  className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
-                >
-                  🖨️ CETAK / PDF
-                </button>
+                  <button
+                    onClick={handlePrintRekap}
+                    className="flex-1 sm:flex-none justify-center bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
+                  >
+                    🖨️ CETAK / PDF
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -653,8 +741,11 @@ export default function AdminDashboard() {
                   ))}
                   {filteredRekap.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="p-16 text-center font-bold text-slate-300 uppercase text-xs tracking-widest">
-                        Tidak ada data kehadiran pada rentang tanggal ini
+                      <td
+                        colSpan={5}
+                        className="p-16 text-center font-bold text-slate-300 uppercase text-xs tracking-widest"
+                      >
+                        Tidak ada data kehadiran pada periode ini
                       </td>
                     </tr>
                   )}
