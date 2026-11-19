@@ -52,7 +52,7 @@ export default function HomeAbsensi() {
     height: 640,
   };
 
-  // --- 1. INITIAL LOAD (SUPER CEPAT DENGAN JSON DESCRIPTOR + AUTO FALLBACK) ---
+  // --- 1. INITIAL LOAD (SUPER CEPAT DENGAN JSON DESCRIPTOR + FAST GPS) ---
   useEffect(() => {
     let isMounted = true;
     const loadSistem = async () => {
@@ -142,7 +142,7 @@ export default function HomeAbsensi() {
         if (isMounted) {
           if (validDescriptors.length > 0) {
             setFaceMatcher(new faceapi.FaceMatcher(validDescriptors, 0.45));
-            if (view === "menu") setPesan("⚡ Scanner Siap");
+            setPesan("⚡ Scanner Siap");
           } else {
             setPesan("Belum ada data wajah terdaftar");
           }
@@ -157,24 +157,56 @@ export default function HomeAbsensi() {
 
     loadSistem();
 
+    // --- FAST GPS LOCK + BACKGROUND REFINE ---
+    let watchId: number;
+
     if ("geolocation" in navigator) {
-      const watchId = navigator.geolocation.watchPosition(
-        (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      // 1. Ambil lokasi cepat/cache (Wi-Fi/BTS) agar tombol langsung aktif < 1 detik
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (isMounted) {
+            setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          }
+        },
+        (err) => {
+          console.warn("Fast GPS fallback ke watchPosition:", err.message);
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 5000,
+          maximumAge: 30000,
+        }
+      );
+
+      // 2. Perhalus akurasi di latar belakang menggunakan satelit GPS presisi tinggi
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          if (isMounted) {
+            setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          }
+        },
         (err) => {
           console.error("GPS Error:", err);
-          playVoice("Sinyal GPS tidak ditemukan. Mohon aktifkan lokasi.");
+          setCoords((prev) => {
+            if (!prev) playVoice("Sinyal GPS tidak ditemukan. Mohon aktifkan lokasi.");
+            return prev;
+          });
         },
-        { enableHighAccuracy: true }
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 10000,
+        }
       );
-      return () => {
-        isMounted = false;
-        navigator.geolocation.clearWatch(watchId);
-      };
     }
+
     return () => {
       isMounted = false;
+      if (watchId !== undefined) {
+        navigator.geolocation.clearWatch(watchId);
+      }
     };
-  }, [view]);
+  }, []);
 
   // --- 2. ENGINE SCANNER ---
   useEffect(() => {
