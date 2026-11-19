@@ -1,16 +1,23 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Swal from "sweetalert2";
 
-export default function AdminDashboard() {
+function AdminDashboardContent() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("rekap");
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab") || "rekap";
+
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [subTabIzin, setSubTabIzin] = useState("Semua");
   const [gurus, setGurus] = useState<any[]>([]);
   const [izins, setIzins] = useState<any[]>([]);
   const [rekap, setRekap] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // State Pencarian & Filter Tab Pegawai
+  const [searchGuru, setSearchGuru] = useState("");
+  const [filterJenjangGuru, setFilterJenjangGuru] = useState("Semua");
 
   // Filter Periode & Tanggal untuk Rekap Kehadiran
   const [periodeMode, setPeriodeMode] = useState<"semua" | "minggu" | "bulan" | "semester" | "custom">("semua");
@@ -35,6 +42,26 @@ export default function AdminDashboard() {
   const [pendingCount, setPendingCount] = useState(0);
 
   const API_URL = "https://backendabsen.mejatika.com/api";
+
+  // Sinkronkan tab jika URL ?tab=... berubah
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam && ["guru", "rekap", "izin", "setting"].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
+
+  // --- FILTERING DATA PEGAWAI (SEARCH & JENJANG) ---
+  const filteredGurus = gurus.filter((g) => {
+    const keyword = searchGuru.toLowerCase();
+    const matchSearch =
+      (g.nama_lengkap || "").toLowerCase().includes(keyword) ||
+      (g.nip || "").toLowerCase().includes(keyword) ||
+      (g.nuptk || "").toLowerCase().includes(keyword) ||
+      (g.jabatan || "").toLowerCase().includes(keyword);
+    const matchJenjang = filterJenjangGuru === "Semua" || g.jenjang === filterJenjangGuru;
+    return matchSearch && matchJenjang;
+  });
 
   // --- HELPER HITUNG RENTANG TANGGAL PRESET ---
   const calculateDateRange = (mode: "semua" | "minggu" | "bulan" | "semester" | "custom") => {
@@ -372,7 +399,7 @@ export default function AdminDashboard() {
 
   // --- 3. EXPORT & CETAK REKAP DATA PEGAWAI ---
   const buildPegawaiTableHtml = () => {
-    const rows = gurus
+    const rows = filteredGurus
       .map(
         (g, idx) => `
         <tr>
@@ -407,24 +434,28 @@ export default function AdminDashboard() {
   };
 
   const handleExportPegawaiExcel = () => {
-    if (gurus.length === 0) {
+    if (filteredGurus.length === 0) {
       Swal.fire("Data Kosong", "Tidak ada data pegawai untuk diexport.", "info");
       return;
     }
     downloadExcelFile(
       "DATA INDUK PEGAWAI & GURU",
-      `Total Pegawai: ${gurus.length} Orang`,
+      `Jenjang: ${filterJenjangGuru} | Total Pegawai: ${filteredGurus.length} Orang`,
       buildPegawaiTableHtml(),
       `Data_Pegawai_TP_${tahunPelajaran.replace(/\//g, "-")}.xls`
     );
   };
 
   const handlePrintPegawai = () => {
-    if (gurus.length === 0) {
+    if (filteredGurus.length === 0) {
       Swal.fire("Data Kosong", "Tidak ada data pegawai untuk dicetak.", "info");
       return;
     }
-    openPrintWindow("DATA INDUK PEGAWAI & GURU", `Total Pegawai: ${gurus.length} Orang`, buildPegawaiTableHtml());
+    openPrintWindow(
+      "DATA INDUK PEGAWAI & GURU",
+      `Jenjang: ${filterJenjangGuru} | Total Pegawai: ${filteredGurus.length} Orang`,
+      buildPegawaiTableHtml()
+    );
   };
 
   // --- FETCH STATS (NOTIFIKASI) ---
@@ -548,6 +579,39 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDeleteGuru = async (id: number, nama: string) => {
+    const confirm = await Swal.fire({
+      title: `Hapus ${nama}?`,
+      text: "Data pegawai dan biometrik wajah yang dihapus tidak dapat dikembalikan!",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#64748b",
+      confirmButtonText: "Ya, Hapus!",
+      cancelButtonText: "Batal",
+    });
+
+    if (!confirm.isConfirmed) return;
+
+    try {
+      const res = await fetch(`${API_URL}/admin/guru/${id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+          Accept: "application/json",
+        },
+      });
+      if (res.ok) {
+        Swal.fire("Terhapus!", "Data pegawai telah dihapus.", "success");
+        loadData();
+      } else {
+        Swal.fire("Gagal", "Tidak dapat menghapus data pegawai.", "error");
+      }
+    } catch (error) {
+      Swal.fire("Error", "Gagal menghubungi server.", "error");
+    }
+  };
+
   const updateStatusIzin = async (id: number, status: string) => {
     try {
       const res = await fetch(`${API_URL}/admin/izin/${id}/status`, {
@@ -644,86 +708,172 @@ export default function AdminDashboard() {
       </nav>
 
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {/* TAB PEGAWAI */}
+        {/* TAB PEGAWAI (LENGKAP DENGAN PENCARIAN, FILTER JENJANG, BIOMETRIK, HAPUS, & EXPORT) */}
         {activeTab === "guru" && (
           <div className="space-y-4">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
               <div>
                 <h2 className="text-sm font-black text-slate-700 uppercase tracking-widest ml-2">
-                  Manajemen Data Pegawai
+                  Database & Manajemen Pegawai
                 </h2>
-                <p className="text-[10px] text-slate-400 ml-2 font-bold italic">Total: {gurus.length} Orang</p>
+                <p className="text-[10px] text-slate-400 ml-2 font-bold italic">
+                  Menampilkan {filteredGurus.length} dari {gurus.length} Pegawai
+                </p>
               </div>
               <div className="flex flex-wrap gap-2 w-full lg:w-auto">
                 <button
+                  onClick={() => router.push("/admin/pegawai")}
+                  className="bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 px-4 py-3 rounded-2xl text-[10px] font-black transition shadow-sm flex items-center gap-1.5 uppercase"
+                  title="Buka di Halaman Terpisah"
+                >
+                  ↗️ Halaman Penuh
+                </button>
+                <button
                   onClick={handleExportPegawaiExcel}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-2xl text-[10px] font-black transition shadow-lg flex items-center gap-2 uppercase"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-3 rounded-2xl text-[10px] font-black transition shadow-lg flex items-center gap-1.5 uppercase"
                 >
                   📊 EXPORT EXCEL
                 </button>
                 <button
                   onClick={handlePrintPegawai}
-                  className="bg-slate-700 hover:bg-slate-800 text-white px-5 py-3 rounded-2xl text-[10px] font-black transition shadow-lg flex items-center gap-2 uppercase"
+                  className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-3 rounded-2xl text-[10px] font-black transition shadow-lg flex items-center gap-1.5 uppercase"
                 >
                   🖨️ CETAK / PDF
                 </button>
-                <label className="cursor-pointer bg-green-600 text-white px-5 py-3 rounded-2xl text-[10px] font-black hover:bg-green-700 transition shadow-lg flex items-center gap-2">
-                  📥 IMPORT EXCEL
+                <label className="cursor-pointer bg-green-600 text-white px-4 py-3 rounded-2xl text-[10px] font-black hover:bg-green-700 transition shadow-lg flex items-center gap-1.5">
+                  📥 IMPORT
                   <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleImportExcel} />
                 </label>
                 <button
                   onClick={() => router.push("/admin/pegawai/tambah")}
-                  className="bg-slate-900 text-white px-5 py-3 rounded-2xl text-[10px] font-black hover:scale-105 transition shadow-lg flex items-center gap-2"
+                  className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-2xl text-[10px] font-black transition shadow-lg flex items-center gap-1.5"
                 >
-                  + TAMBAH GURU
+                  + TAMBAH PEGAWAI
                 </button>
               </div>
             </div>
 
+            {/* BAR PENCARIAN & FILTER JENJANG */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={searchGuru}
+                  onChange={(e) => setSearchGuru(e.target.value)}
+                  placeholder="Cari nama pegawai, NIP, NUPTK, atau jabatan..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-red-500"
+                />
+                <span className="absolute left-3.5 top-2.5 text-slate-400 text-xs">🔍</span>
+              </div>
+              <select
+                value={filterJenjangGuru}
+                onChange={(e) => setFilterJenjangGuru(e.target.value)}
+                className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black uppercase text-slate-700 outline-none focus:border-red-500 cursor-pointer"
+              >
+                <option value="Semua">Semua Jenjang</option>
+                <option value="SMP">SMP</option>
+                <option value="SMA">SMA</option>
+              </select>
+              {(searchGuru || filterJenjangGuru !== "Semua") && (
+                <button
+                  onClick={() => {
+                    setSearchGuru("");
+                    setFilterJenjangGuru("Semua");
+                  }}
+                  className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-[10px] font-black uppercase transition"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+
+            {/* TABEL DATA PEGAWAI */}
             <div className="bg-white rounded-[32px] shadow-sm border border-slate-100 overflow-hidden">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-800 text-white uppercase text-[9px] font-black tracking-widest">
-                  <tr>
-                    <th className="p-6">Informasi Pegawai</th>
-                    <th className="p-6">NIP/NUPTK</th>
-                    <th className="p-6 text-center">Status</th>
-                    <th className="p-6 text-center">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {gurus.map((g) => (
-                    <tr key={g.id} className="hover:bg-slate-50 transition">
-                      <td className="p-6">
-                        <div className="font-black text-slate-800 uppercase text-xs">{g.nama_lengkap}</div>
-                        <div className="text-[9px] font-bold text-red-600 uppercase italic">
-                          {g.jenjang} {g.jabatan ? `• ${g.jabatan}` : ""}
-                        </div>
-                      </td>
-                      <td className="p-6 text-xs font-bold text-slate-500">
-                        {g.nip || "-"} / {g.nuptk || "-"}
-                      </td>
-                      <td className="p-6 text-center">
-                        <span className="bg-green-100 text-green-600 px-3 py-1 rounded-full text-[9px] font-black uppercase">
-                          Aktif
-                        </span>
-                      </td>
-                      <td className="p-6 text-center">
-                        <button
-                          onClick={() => router.push(`/admin/pegawai/edit/${g.id}`)}
-                          className="bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-600 transition p-2 rounded-lg text-[10px] font-black"
-                        >
-                          ✏️ EDIT
-                        </button>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-800 text-white uppercase text-[9px] font-black tracking-widest">
+                    <tr>
+                      <th className="p-6">Foto & Informasi Pegawai</th>
+                      <th className="p-6">NIP / NUPTK</th>
+                      <th className="p-6 text-center">Biometrik</th>
+                      <th className="p-6 text-center">Aksi</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredGurus.map((g) => (
+                      <tr key={g.id} className="hover:bg-slate-50 transition">
+                        <td className="p-6">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={
+                                g.foto_referensi
+                                  ? `https://backendabsen.mejatika.com/storage/${g.foto_referensi}`
+                                  : "/no-avatar.png"
+                              }
+                              alt={g.nama_lengkap}
+                              className="w-11 h-11 rounded-2xl object-cover border border-slate-200 bg-slate-100"
+                            />
+                            <div>
+                              <div className="font-black text-slate-800 uppercase text-xs">{g.nama_lengkap}</div>
+                              <div className="text-[9px] font-bold text-red-600 uppercase italic">
+                                {g.jenjang} {g.jabatan ? `• ${g.jabatan}` : ""}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-6 text-xs font-mono font-bold text-slate-500">
+                          <div>NIP: {g.nip || "-"}</div>
+                          <div className="text-[10px] text-slate-400">NUPTK: {g.nuptk || "-"}</div>
+                        </td>
+                        <td className="p-6 text-center">
+                          <span
+                            className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${
+                              g.face_descriptor || g.foto_referensi
+                                ? "bg-green-100 text-green-600"
+                                : "bg-amber-100 text-amber-600"
+                            }`}
+                          >
+                            {g.face_descriptor || g.foto_referensi ? "✅ Terdaftar" : "⚠️ Belum Scan"}
+                          </span>
+                        </td>
+                        <td className="p-6 text-center">
+                          <div className="flex justify-center gap-2">
+                            <button
+                              onClick={() => router.push(`/admin/pegawai/edit/${g.id}`)}
+                              className="bg-slate-100 hover:bg-amber-500 text-slate-600 hover:text-white transition px-3 py-2 rounded-xl text-[10px] font-black uppercase"
+                              title="Edit Data & Biometrik"
+                            >
+                              ✏️ EDIT
+                            </button>
+                            <button
+                              onClick={() => handleDeleteGuru(g.id, g.nama_lengkap)}
+                              className="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white transition px-3 py-2 rounded-xl text-[10px] font-black uppercase"
+                              title="Hapus Pegawai"
+                            >
+                              🗑️ HAPUS
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredGurus.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="p-16 text-center font-bold text-slate-300 uppercase text-xs tracking-widest"
+                        >
+                          Data pegawai tidak ditemukan
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
-        {/* TAB KEHADIRAN (DROPDOWN PERIODE + EXPORT) */}
+        {/* TAB KEHADIRAN */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
             <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
@@ -736,7 +886,6 @@ export default function AdminDashboard() {
                 </p>
               </div>
 
-              {/* DROPDOWN PERIODE + INPUT TANGGAL (JIKA CUSTOM) + TOMBOL EXPORT */}
               <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
                 <select
                   value={periodeMode}
@@ -903,11 +1052,10 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB IZIN & SAKIT (DROPDOWN PERIODE + EXPORT) */}
+        {/* TAB IZIN & SAKIT */}
         {activeTab === "izin" && (
           <div className="space-y-4">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-              {/* SUB TAB JENIS IZIN */}
               <div className="flex flex-wrap gap-2">
                 {["Semua", "Izin", "Sakit", "Cuti", "Tugas Luar"].map((type) => (
                   <button
@@ -929,7 +1077,6 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              {/* DROPDOWN PERIODE & EXPORT IZIN */}
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={periodeIzinMode}
@@ -1138,5 +1285,19 @@ export default function AdminDashboard() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function AdminDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center font-black text-slate-300 uppercase tracking-widest">
+          Memuat Dashboard Admin...
+        </div>
+      }
+    >
+      <AdminDashboardContent />
+    </Suspense>
   );
 }
