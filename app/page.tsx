@@ -45,7 +45,6 @@ export default function HomeAbsensi() {
 
   const router = useRouter();
 
-  // Dimensi video diubah agar pas di dalam frame container, bukan mengikuti ukuran layar window
   const videoConstraints = {
     facingMode: "user" as const,
     width: 480,
@@ -59,7 +58,6 @@ export default function HomeAbsensi() {
       try {
         const MODEL_URL = "/models";
 
-        // Fetch setting, data referensi guru, dan model AI secara paralel
         const [configRes, refRes, _models] = await Promise.all([
           fetch("https://backendabsen.mejatika.com/api/setting-app").then((res) => res.json()),
           fetch("https://backendabsen.mejatika.com/api/admin/guru/referensi").then((res) => res.json()),
@@ -76,7 +74,6 @@ export default function HomeAbsensi() {
 
         await Promise.all(
           refRes.map(async (guru: any) => {
-            // JALUR CEPAT: Jika face_descriptor JSON sudah tersimpan di database
             if (guru.face_descriptor) {
               try {
                 const parsedArray =
@@ -97,7 +94,6 @@ export default function HomeAbsensi() {
               }
             }
 
-            // JALUR FALLBACK (SEKALI SAJA): Jika data lama belum punya face_descriptor
             if (guru.foto_referensi) {
               try {
                 const imgUrl = `https://backendabsen.mejatika.com/storage/${guru.foto_referensi}`;
@@ -118,7 +114,6 @@ export default function HomeAbsensi() {
                     ])
                   );
 
-                  // Kirim diam-diam ke Laravel agar tersimpan permanen di DB (kunjungan berikutnya instan)
                   fetch(
                     `https://backendabsen.mejatika.com/api/admin/guru/update-descriptor/${guru.id}`,
                     {
@@ -161,7 +156,6 @@ export default function HomeAbsensi() {
     let watchId: number;
 
     if ("geolocation" in navigator) {
-      // 1. Ambil lokasi cepat/cache (Wi-Fi/BTS) agar tombol langsung aktif < 1 detik
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           if (isMounted) {
@@ -178,7 +172,6 @@ export default function HomeAbsensi() {
         }
       );
 
-      // 2. Perhalus akurasi di latar belakang menggunakan satelit GPS presisi tinggi
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
           if (isMounted) {
@@ -214,6 +207,7 @@ export default function HomeAbsensi() {
       isLocked.current = false;
       faceBuffer.current = 0;
       unknownBuffer.current = 0;
+      setPesan("Mencari Wajah...");
       playVoice("Sistem aktif, silakan posisikan wajah Anda.");
 
       scanIntervalRef.current = setInterval(async () => {
@@ -240,7 +234,6 @@ export default function HomeAbsensi() {
             const { width } = resizedDetections.detection.box;
 
             if (width >= 40 && width <= 250) {
-              // Toleransi ukuran disesuaikan karena frame mengecil
               setScanStatus("locked");
               if (faceMatcher && !isLocked.current) {
                 const match = faceMatcher.findBestMatch(resizedDetections.descriptor);
@@ -457,7 +450,7 @@ export default function HomeAbsensi() {
   };
 
   const handleStartAbsen = () => {
-    setView("absen"); // Langsung ubah view tanpa memicu Fullscreen layar
+    setView("absen");
   };
 
   // --- UI RENDER: LAYOUT YANG DISATUKAN ---
@@ -524,55 +517,59 @@ export default function HomeAbsensi() {
               </div>
             </div>
           ) : (
-            /* TAMPILAN KAMERA JIKA VIEW === 'ABSEN' (Hanya berbentuk Frame di dalam Kartu) */
-            <div className="relative w-full aspect-[3/4] max-w-[320px] mx-auto bg-black rounded-3xl overflow-hidden shadow-md border-2 border-slate-200 mb-4">
-              {/* WEBCAM */}
-              <Webcam
-                ref={webcamRef}
-                audio={false}
-                screenshotFormat="image/jpeg"
-                videoConstraints={videoConstraints}
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              {/* CANVAS OVERLAY UNTUK FACEAPI */}
-              <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 object-cover" />
+            /* TAMPILAN KAMERA JIKA VIEW === 'ABSEN' (BERSIH TANPA TERTUTUP KETERANGAN) */
+            <div className="mb-3">
+              {/* FRAME KAMERA BERSIH */}
+              <div className="relative w-full aspect-[3/4] max-w-[320px] mx-auto bg-black rounded-3xl overflow-hidden shadow-md border-2 border-slate-200">
+                {/* WEBCAM */}
+                <Webcam
+                  ref={webcamRef}
+                  audio={false}
+                  screenshotFormat="image/jpeg"
+                  videoConstraints={videoConstraints}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+                {/* CANVAS OVERLAY UNTUK FACEAPI */}
+                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 object-cover" />
 
-              {/* INDIKATOR TARGET WAJAH (OVAL BORDER DI DALAM KAMERA) */}
-              <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none p-6">
-                <div
-                  className={`w-full h-full rounded-[50px] border-[3px] transition-all duration-300 
-                  ${
-                    scanStatus === "searching"
-                      ? "border-white/40 border-dashed"
-                      : scanStatus === "locked"
-                      ? "border-cyan-400 shadow-[0_0_30px_rgba(34,211,238,0.4)]"
-                      : "border-green-500 shadow-[0_0_40px_rgba(34,197,94,0.5)]"
-                  }`}
-                >
-                  {scanStatus !== "searching" && (
-                    <div className="absolute inset-0 rounded-[46px] animate-pulse-glow border-4 border-transparent"></div>
-                  )}
+                {/* INDIKATOR TARGET WAJAH (OVAL BORDER DI DALAM KAMERA) */}
+                <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none p-5">
+                  <div
+                    className={`w-full h-full rounded-[50px] border-[3px] transition-all duration-300 
+                    ${
+                      scanStatus === "searching"
+                        ? "border-white/40 border-dashed"
+                        : scanStatus === "locked"
+                        ? "border-cyan-400 shadow-[0_0_30px_rgba(34,211,238,0.4)]"
+                        : "border-green-500 shadow-[0_0_40px_rgba(34,197,94,0.5)]"
+                    }`}
+                  >
+                    {scanStatus !== "searching" && (
+                      <div className="absolute inset-0 rounded-[46px] animate-pulse-glow border-4 border-transparent"></div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* BADGE TEXT STATUS SCANNING */}
-              <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 z-30 w-11/12">
-                <div className="bg-black/70 backdrop-blur-md rounded-2xl py-2 px-3 text-center border border-white/10 shadow-lg">
-                  <span
-                    className={`text-xs font-black uppercase tracking-wide block ${
-                      scanStatus === "success" ? "text-green-400" : "text-amber-300"
-                    }`}
-                  >
+              {/* KETERANGAN STATUS & GPS DIPINDAHKAN KE LUAR / BAWAH FRAME KAMERA */}
+              <div className="mt-3 max-w-[320px] mx-auto flex flex-col gap-1.5">
+                <div
+                  className={`py-2 px-3 rounded-xl border text-center transition-colors ${
+                    scanStatus === "success"
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : scanStatus === "locked"
+                      ? "bg-cyan-50 border-cyan-200 text-cyan-800"
+                      : "bg-slate-800 border-slate-700 text-amber-300"
+                  }`}
+                >
+                  <span className="text-xs font-black uppercase tracking-wide block">
                     {pesan}
                   </span>
                 </div>
-              </div>
 
-              {/* INDIKATOR KOORDINAT KECIL DI ATAS KAMERA */}
-              <div className="absolute top-2 left-2 z-30">
-                <span className="bg-black/50 text-[8px] text-cyan-400 font-mono px-2 py-0.5 rounded-full backdrop-blur-sm">
-                  {coords ? `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}` : "GPS.."}
-                </span>
+                <div className="text-[10px] text-slate-500 font-mono">
+                  📍 {coords ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` : "Menunggu GPS..."}
+                </div>
               </div>
             </div>
           )}
