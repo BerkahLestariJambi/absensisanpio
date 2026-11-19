@@ -314,7 +314,7 @@ function AdminDashboardContent() {
     openPrintWindow("REKAPITULASI KEHADIRAN PEGAWAI", subInfo, buildRekapTableHtml());
   };
 
-  // --- 2. EXPORT & CETAK LAPORAN IZIN & SAKIT ---
+  // --- 2. EXPORT & CETAK LAPORAN IZIN & SAKIT (DENGAN ALASAN PENOLAKAN) ---
   const buildIzinTableHtml = () => {
     const rows = filteredIzins
       .map((i, idx) => {
@@ -339,6 +339,7 @@ function AdminDashboardContent() {
           : i.jenis === "Sakit"
           ? "Hingga Sembuh"
           : "-";
+        const alasanTolak = i.catatan_admin || i.alasan_penolakan;
 
         return `
           <tr>
@@ -349,7 +350,14 @@ function AdminDashboardContent() {
             <td style="text-align:center;">${tglMulai} s/d ${tglSelesai}</td>
             <td>${i.keterangan || "-"}</td>
             <td style="text-align:center;">${tglPengajuan}</td>
-            <td style="text-align:center; font-weight:bold;">${i.status}</td>
+            <td style="text-align:center; font-weight:bold;">
+              ${i.status}
+              ${
+                i.status === "Ditolak" && alasanTolak
+                  ? `<br/><span style="font-size:9px; font-weight:normal; color:#b91c1c;">Alasan: ${alasanTolak}</span>`
+                  : ""
+              }
+            </td>
           </tr>
         `;
       })
@@ -366,7 +374,7 @@ function AdminDashboardContent() {
             <th>Rentang Tanggal</th>
             <th>Keterangan / Alasan</th>
             <th>Tgl Pengajuan</th>
-            <th>Status</th>
+            <th>Status & Catatan</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -613,18 +621,58 @@ function AdminDashboardContent() {
   };
 
   const updateStatusIzin = async (id: number, status: string) => {
+    let catatanAdmin: string | null = null;
+
+    if (status === "Ditolak") {
+      const { value: alasan, isConfirmed } = await Swal.fire({
+        title: "Tolak Pengajuan?",
+        input: "textarea",
+        inputLabel: "Alasan Penolakan (Kepala Sekolah)",
+        inputPlaceholder: "Tuliskan alasan mengapa pengajuan izin/cuti ini ditolak...",
+        showCancelButton: true,
+        confirmButtonColor: "#dc2626",
+        cancelButtonColor: "#64748b",
+        confirmButtonText: "Kirim Penolakan",
+        cancelButtonText: "Batal",
+        inputValidator: (value) => {
+          if (!value || !value.trim()) {
+            return "Alasan penolakan wajib diisi!";
+          }
+          return null;
+        },
+      });
+
+      if (!isConfirmed) return;
+      catatanAdmin = alasan.trim();
+    }
+
     try {
       const res = await fetch(`${API_URL}/admin/izin/${id}/status`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
           Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
         },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          status,
+          catatan_admin: catatanAdmin,
+        }),
       });
+
+      const result = await res.json();
+
       if (res.ok) {
-        Swal.fire("Berhasil", `Izin telah ${status}`, "success");
+        Swal.fire(
+          "Berhasil",
+          status === "Ditolak"
+            ? "Pengajuan telah ditolak beserta alasannya."
+            : "Pengajuan telah disetujui.",
+          "success"
+        );
         loadData();
+      } else {
+        Swal.fire("Gagal", result.message || "Gagal memperbarui status.", "error");
       }
     } catch (err) {
       Swal.fire("Gagal", "Error sistem.", "error");
@@ -1052,7 +1100,7 @@ function AdminDashboardContent() {
           </div>
         )}
 
-        {/* TAB IZIN & SAKIT */}
+        {/* TAB IZIN & SAKIT (DENGAN ALASAN PENOLAKAN KEPALA SEKOLAH) */}
         {activeTab === "izin" && (
           <div className="space-y-4">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
@@ -1132,7 +1180,7 @@ function AdminDashboardContent() {
                       <th className="p-6 text-left">Nama Pegawai</th>
                       <th className="p-6 text-left">Jenis & Rentang Waktu</th>
                       <th className="p-6 text-center">Lampiran</th>
-                      <th className="p-6 text-center">Status</th>
+                      <th className="p-6 text-center">Status & Catatan</th>
                       <th className="p-6 text-center">Aksi</th>
                     </tr>
                   </thead>
@@ -1142,6 +1190,7 @@ function AdminDashboardContent() {
                       const buktiUrl =
                         i.bukti_dokumen_url ||
                         (buktiFile ? `https://backendabsen.mejatika.com/storage/${buktiFile}` : null);
+                      const alasanTolak = i.catatan_admin || i.alasan_penolakan;
 
                       return (
                         <tr key={i.id} className="hover:bg-slate-50/80 transition">
@@ -1203,7 +1252,7 @@ function AdminDashboardContent() {
                           </td>
                           <td className="p-6 text-center">
                             <span
-                              className={`text-[9px] font-black px-3 py-1 rounded-full border uppercase ${
+                              className={`text-[9px] font-black px-3 py-1 rounded-full border uppercase inline-block ${
                                 i.status === "Disetujui"
                                   ? "bg-green-50 text-green-600 border-green-100"
                                   : i.status === "Ditolak"
@@ -1213,6 +1262,15 @@ function AdminDashboardContent() {
                             >
                               {i.status}
                             </span>
+
+                            {i.status === "Ditolak" && alasanTolak && (
+                              <div className="mt-2 max-w-[220px] mx-auto bg-red-50/80 border border-red-100 rounded-xl p-2 text-[10px] text-red-700 font-medium text-left">
+                                <span className="font-black uppercase text-[8px] block text-red-500">
+                                  Alasan Penolakan:
+                                </span>
+                                "{alasanTolak}"
+                              </div>
+                            )}
                           </td>
                           <td className="p-6 text-center">
                             <div className="flex justify-center gap-2">
