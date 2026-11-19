@@ -111,7 +111,7 @@ function DashboardContent() {
 
         setMyRekap(Object.values(grouped).sort((a: any, b: any) => b.rawDate - a.rawDate));
 
-        // Proses Data Pengajuan Izin (Sudah terurut terbaru dari backend, jangan di-reverse lagi)
+        // Proses Data Pengajuan Izin (Sudah terurut terbaru dari backend)
         if (resIzin.ok) {
           const izinJson = await resIzin.json();
           const allIzin = Array.isArray(izinJson) ? izinJson : izinJson.data || [];
@@ -174,10 +174,9 @@ function DashboardContent() {
       if (res.ok && result.success) {
         Swal.fire("Berhasil", "Pengajuan izin berhasil dikirim dan menunggu persetujuan!", "success");
         setFormIzin({ jenis: "Izin", keterangan: "", tanggal_mulai: "", tanggal_selesai: "", file: null });
-        if (fileInputRef.current) fileInputRef.current.value = ""; // Reset tampilan input file
+        if (fileInputRef.current) fileInputRef.current.value = "";
         loadData();
       } else {
-        // Tampilkan detail error validasi Laravel jika ada
         const errorDetail = result.errors
           ? Object.values(result.errors).flat().join(", ")
           : result.message || "Periksa kembali data Anda";
@@ -232,11 +231,14 @@ function DashboardContent() {
           </button>
           <button
             onClick={() => setActiveTab("izin")}
-            className={`py-2 px-6 rounded-xl text-[10px] font-black uppercase transition-all ${
+            className={`py-2 px-6 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${
               activeTab === "izin" ? "bg-red-600 text-white shadow-lg" : "text-slate-400"
             }`}
           >
             ✉️ Pengajuan Izin
+            {myIzin.some((i) => i.status === "Ditolak") && (
+              <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
+            )}
           </button>
         </nav>
 
@@ -397,7 +399,7 @@ function DashboardContent() {
                         </div>
                       </div>
                       <p className="text-[8px] text-red-400 font-bold italic">
-                        * Samakan tanggal mulai & selesai jika hanya 1 hari
+                        - Samakan tanggal mulai & selesai jika hanya 1 hari
                       </p>
                     </div>
                   )}
@@ -437,7 +439,9 @@ function DashboardContent() {
                     type="submit"
                     disabled={isSubmitting}
                     className={`w-full ${
-                      isSubmitting ? "bg-slate-400 cursor-not-allowed" : "bg-red-600 hover:bg-red-700 hover:shadow-red-200 active:scale-95"
+                      isSubmitting
+                        ? "bg-slate-400 cursor-not-allowed"
+                        : "bg-red-600 hover:bg-red-700 hover:shadow-red-200 active:scale-95"
                     } text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all flex items-center justify-center`}
                   >
                     {isSubmitting ? "MENGIRIM DATA..." : "KIRIM PENGAJUAN SEKARANG 🚀"}
@@ -465,7 +469,11 @@ function DashboardContent() {
                     return (
                       <div
                         key={izin.id || idx}
-                        className="group bg-slate-700/50 p-5 rounded-[24px] border border-slate-600 hover:bg-slate-700 transition-all"
+                        className={`group p-5 rounded-[24px] border transition-all ${
+                          izin.status === "Ditolak"
+                            ? "bg-red-950/30 border-red-500/40 hover:bg-red-950/40"
+                            : "bg-slate-700/50 border-slate-600 hover:bg-slate-700"
+                        }`}
                       >
                         <div className="flex justify-between items-center mb-3">
                           <div className="flex items-center gap-3">
@@ -505,10 +513,17 @@ function DashboardContent() {
                             <p className="text-[11px] text-slate-300 italic leading-relaxed bg-slate-800/50 p-3 rounded-xl border-l-2 border-slate-500">
                               "{izin.keterangan}"
                             </p>
-                            {izin.catatan_admin && (
-                              <p className="text-[10px] text-amber-300 mt-2 font-semibold">
-                                Catatan Admin: {izin.catatan_admin}
-                              </p>
+
+                            {/* KOTAK ALASAN PENOLAKAN DARI KEPALA SEKOLAH */}
+                            {izin.status === "Ditolak" && izin.alasan_penolakan && (
+                              <div className="mt-3 bg-red-500/15 border border-red-500/30 rounded-xl p-3">
+                                <p className="text-[9px] font-black uppercase tracking-wider text-red-300 mb-1 flex items-center gap-1.5">
+                                  <span>⚠️</span> Alasan Penolakan Kepala Sekolah:
+                                </p>
+                                <p className="text-[11px] text-red-100 font-medium leading-relaxed">
+                                  "{izin.alasan_penolakan}"
+                                </p>
+                              </div>
                             )}
                           </div>
                           {buktiHref && (
