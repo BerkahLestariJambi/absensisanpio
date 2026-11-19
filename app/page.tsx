@@ -32,6 +32,8 @@ export default function HomeAbsensi() {
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const coordsRef = useRef<{ lat: number; lng: number } | null>(null); // Simpan GPS terbaru secara real-time
+  const [gpsError, setGpsError] = useState<string | null>(null);
   const [pesan, setPesan] = useState("Menyiapkan Sistem...");
   const [isProcessing, setIsProcessing] = useState(false);
   const [faceMatcher, setFaceMatcher] = useState<faceapi.FaceMatcher | null>(null);
@@ -51,7 +53,7 @@ export default function HomeAbsensi() {
     height: 640,
   };
 
-  // --- 1. INITIAL LOAD (SUPER CEPAT DENGAN JSON DESCRIPTOR + FAST GPS) ---
+  // --- 1. INITIAL LOAD (SUPER CEPAT + BACKGROUND GPS) ---
   useEffect(() => {
     let isMounted = true;
     const loadSistem = async () => {
@@ -152,45 +154,49 @@ export default function HomeAbsensi() {
 
     loadSistem();
 
-    // --- FAST GPS LOCK + BACKGROUND REFINE ---
+    // --- NON-BLOCKING GPS (BERJALAN DI LATAR BELAKANG) ---
     let watchId: number;
 
+    const updateLocation = (pos: GeolocationPosition) => {
+      if (!isMounted) return;
+      const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      coordsRef.current = newCoords;
+      setCoords(newCoords);
+      setGpsError(null);
+    };
+
     if ("geolocation" in navigator) {
+      // 1. Ambil lokasi cache/jaringan secepat mungkin (tanpa batas timeout ketat)
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (isMounted) {
-            setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          }
-        },
+        updateLocation,
         (err) => {
-          console.warn("Fast GPS fallback ke watchPosition:", err.message);
+          if (err.code === 1 && isMounted) {
+            setGpsError("Izin lokasi ditolak browser");
+          }
         },
         {
           enableHighAccuracy: false,
-          timeout: 5000,
-          maximumAge: 30000,
+          maximumAge: Infinity, // Pakai lokasi terakhir yang ada di HP segera
         }
       );
 
+      // 2. Pantau & perhalus lokasi terus-menerus di latar belakang
       watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          if (isMounted) {
-            setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          }
-        },
+        updateLocation,
         (err) => {
-          console.error("GPS Error:", err);
-          setCoords((prev) => {
-            if (!prev) playVoice("Sinyal GPS tidak ditemukan. Mohon aktifkan lokasi.");
-            return prev;
-          });
+          if (!isMounted) return;
+          if (err.code === 1) {
+            setGpsError("Izin lokasi ditolak. Aktifkan GPS di browser.");
+            playVoice("Izin lokasi ditolak. Mohon aktifkan izin lokasi.");
+          }
         },
         {
           enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 10000,
+          maximumAge: 15000,
         }
       );
+    } else {
+      setGpsError("Perangkat tidak mendukung GPS");
     }
 
     return () => {
@@ -289,6 +295,28 @@ export default function HomeAbsensi() {
     return () => clearInterval(scanIntervalRef.current);
   }, [view, faceMatcher, isProcessing]);
 
+  // --- HELPER AMBIL GPS SAAT SUBMIT JIKA MASIH NULL ---
+  const ensureCoords = (): Promise<{ lat: number; lng: number } | null> => {
+    if (coordsRef.current) return Promise.resolve(coordsRef.current);
+
+    return new Promise((resolve) => {
+      if (!("geolocation" in navigator)) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const c = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          coordsRef.current = c;
+          setCoords(c);
+          resolve(c);
+        },
+        () => resolve(null),
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: Infinity }
+      );
+    });
+  };
+
   // --- 3. LOGIKA SUCCESS & SERVER ---
   const handleRecognitionSuccess = async (guruId: string) => {
     try {
@@ -316,6 +344,10 @@ export default function HomeAbsensi() {
         });
         return;
       }
+
+      // Pastikan koordinat GPS sudah siap sebelum kirim ke server
+      setPesan("Mengunci Lokasi GPS...");
+      const finalCoords = await ensureCoords();
 
       const jumlahAbsen = checkData.jumlah_absen || 0;
       const sekarang = new Date();
@@ -355,10 +387,10 @@ export default function HomeAbsensi() {
             if (!value) return "Alasan wajib dipilih!";
           },
         });
-        if (alasan) sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot, alasan);
+        if (alasan) sendToServer(guruId, finalCoords?.lat || 0, finalCoords?.lng || 0, screenshot, alasan);
         else resetScanner();
       } else {
-        sendToServer(guruId, coords?.lat || 0, coords?.lng || 0, screenshot);
+        sendToServer(guruId, finalCoords?.lat || 0, finalCoords?.lng || 0, screenshot);
       }
     } catch (e) {
       resetScanner();
@@ -380,8 +412,12 @@ export default function HomeAbsensi() {
         return;
       }
       if (lat === 0 || lng === 0) {
-        playVoice("Gagal mengambil lokasi GPS.");
-        await Swal.fire("GPS Belum Siap", "Mohon tunggu sinyal lokasi.", "warning");
+        playVoice("Gagal mengambil lokasi GPS. Pastikan lokasi HP aktif.");
+        await Swal.fire(
+          "Lokasi Tidak Terdeteksi",
+          "Pastikan GPS HP aktif dan izin lokasi browser diizinkan.",
+          "warning"
+        );
         resetScanner();
         return;
       }
@@ -453,7 +489,7 @@ export default function HomeAbsensi() {
     setView("absen");
   };
 
-  // --- UI RENDER: LAYOUT YANG DISATUKAN ---
+  // --- UI RENDER ---
   return (
     <div className="min-h-screen bg-[#fdf5e6] flex flex-col items-center justify-center p-4 relative overflow-hidden">
       {/* 1. WATERMARK BACKGROUND LAYAR */}
@@ -499,9 +535,8 @@ export default function HomeAbsensi() {
             </div>
           </div>
 
-          {/* KONDISI TAMPILAN KAMERA FRAME / ATAU HURUF UMUM */}
+          {/* KONDISI TAMPILAN KAMERA FRAME / ATAU MENU AWAL */}
           {view === "menu" ? (
-            /* TAMPILAN AWAL SEBELUM KLIK ABSEN */
             <div className="py-8 flex flex-col items-center">
               <div className="w-32 h-32 bg-amber-50 rounded-full flex items-center justify-center text-5xl shadow-inner border border-amber-100 mb-4 animate-pulse">
                 👤
@@ -512,16 +547,18 @@ export default function HomeAbsensi() {
 
               <div className="my-4 p-2.5 bg-amber-50/80 backdrop-blur-sm rounded-xl border border-dashed border-amber-200 inline-block">
                 <p className="text-[11px] text-amber-700 font-bold uppercase italic">
-                  {coords ? "📍 Lokasi Terdeteksi" : "⌛ Mencari Sinyal GPS..."}
+                  {gpsError
+                    ? `⚠️ ${gpsError}`
+                    : coords
+                    ? "📍 Lokasi Terdeteksi"
+                    : "🛰️ Sinkronisasi GPS di latar belakang..."}
                 </p>
               </div>
             </div>
           ) : (
-            /* TAMPILAN KAMERA JIKA VIEW === 'ABSEN' (BERSIH TANPA TERTUTUP KETERANGAN) */
             <div className="mb-3">
               {/* FRAME KAMERA BERSIH */}
               <div className="relative w-full aspect-[3/4] max-w-[320px] mx-auto bg-black rounded-3xl overflow-hidden shadow-md border-2 border-slate-200">
-                {/* WEBCAM */}
                 <Webcam
                   ref={webcamRef}
                   audio={false}
@@ -529,10 +566,8 @@ export default function HomeAbsensi() {
                   videoConstraints={videoConstraints}
                   className="absolute inset-0 w-full h-full object-cover"
                 />
-                {/* CANVAS OVERLAY UNTUK FACEAPI */}
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 object-cover" />
 
-                {/* INDIKATOR TARGET WAJAH (OVAL BORDER DI DALAM KAMERA) */}
                 <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none p-5">
                   <div
                     className={`w-full h-full rounded-[50px] border-[3px] transition-all duration-300 
@@ -551,7 +586,7 @@ export default function HomeAbsensi() {
                 </div>
               </div>
 
-              {/* KETERANGAN STATUS & GPS DIPINDAHKAN KE LUAR / BAWAH FRAME KAMERA */}
+              {/* KETERANGAN STATUS & GPS DI LUAR / BAWAH FRAME KAMERA */}
               <div className="mt-3 max-w-[320px] mx-auto flex flex-col gap-1.5">
                 <div
                   className={`py-2 px-3 rounded-xl border text-center transition-colors ${
@@ -568,29 +603,25 @@ export default function HomeAbsensi() {
                 </div>
 
                 <div className="text-[10px] text-slate-500 font-mono">
-                  📍 {coords ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` : "Menunggu GPS..."}
+                  📍 {coords ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` : "Mengunci koordinat GPS..."}
                 </div>
               </div>
             </div>
           )}
 
-          {/* TOMBOL AKSI DYNAMIC */}
+          {/* TOMBOL AKSI DYNAMIC: AKTIF BEGITU FACEMATCHER SIAP (TIDAK MENUNGGU GPS) */}
           {view === "menu" ? (
             <button
-              disabled={!faceMatcher || !coords}
+              disabled={!faceMatcher}
               onClick={handleStartAbsen}
               className={`w-full py-4 ${
-                !faceMatcher || !coords
+                !faceMatcher
                   ? "bg-slate-400 cursor-not-allowed"
                   : "bg-red-600 hover:bg-red-700 active:scale-95"
               } text-white rounded-2xl font-black shadow-lg text-base flex items-center justify-center gap-3 transition-all`}
             >
               <span>📷</span>{" "}
-              {faceMatcher
-                ? coords
-                  ? "ABSEN SEKARANG"
-                  : "MENUNGGU GPS..."
-                : "LOADING DATA..."}
+              {faceMatcher ? "ABSEN SEKARANG" : "MENYIAPKAN BIOMETRIK..."}
             </button>
           ) : (
             <button
