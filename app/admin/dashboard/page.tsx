@@ -12,13 +12,22 @@ export default function AdminDashboard() {
   const [rekap, setRekap] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Filter Periode & Tanggal untuk Rekap & Export
+  // Filter Periode & Tanggal untuk Rekap Kehadiran
   const [periodeMode, setPeriodeMode] = useState<"semua" | "minggu" | "bulan" | "semester" | "custom">("semua");
   const [filterStartDate, setFilterStartDate] = useState("");
   const [filterEndDate, setFilterEndDate] = useState("");
 
-  const [schoolName, setSchoolName] = useState("Memuat...");
+  // Filter Periode untuk Tab Izin
+  const [periodeIzinMode, setPeriodeIzinMode] = useState<"semua" | "minggu" | "bulan" | "semester">("semua");
+  const [izinStartDate, setIzinStartDate] = useState("");
+  const [izinEndDate, setIzinEndDate] = useState("");
+
+  // Data Setting Sekolah
+  const [schoolName, setSchoolName] = useState("SMAS SEMINARI PIUS XII KISOL");
   const [schoolLogo, setSchoolLogo] = useState<string | null>(null);
+  const [tahunPelajaran, setTahunPelajaran] = useState("-");
+  const [semester, setSemester] = useState("-");
+
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
 
@@ -27,57 +36,54 @@ export default function AdminDashboard() {
 
   const API_URL = "https://backendabsen.mejatika.com/api";
 
-  // --- HELPER PILIH PRESET PERIODE (MINGGU / BULAN / SEMESTER) ---
-  const handleSelectPeriode = (mode: "semua" | "minggu" | "bulan" | "semester") => {
-    setPeriodeMode(mode);
+  // --- HELPER HITUNG RENTANG TANGGAL PRESET ---
+  const calculateDateRange = (mode: "semua" | "minggu" | "bulan" | "semester") => {
     const now = new Date();
-
-    if (mode === "semua") {
-      setFilterStartDate("");
-      setFilterEndDate("");
-      return;
-    }
+    if (mode === "semua") return { start: "", end: "" };
 
     if (mode === "minggu") {
-      // Senin s/d Minggu pada minggu berjalan
-      const day = now.getDay(); // 0 (Minggu) - 6 (Sabtu)
+      const day = now.getDay();
       const diffToMonday = day === 0 ? -6 : 1 - day;
       const monday = new Date(now);
       monday.setDate(now.getDate() + diffToMonday);
-
       const sunday = new Date(monday);
       sunday.setDate(monday.getDate() + 6);
-
-      setFilterStartDate(monday.toLocaleDateString("en-CA"));
-      setFilterEndDate(sunday.toLocaleDateString("en-CA"));
-      return;
+      return {
+        start: monday.toLocaleDateString("en-CA"),
+        end: sunday.toLocaleDateString("en-CA"),
+      };
     }
 
     if (mode === "bulan") {
-      // Tanggal 1 s/d akhir bulan berjalan
       const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
       const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-      setFilterStartDate(firstDay.toLocaleDateString("en-CA"));
-      setFilterEndDate(lastDay.toLocaleDateString("en-CA"));
-      return;
+      return {
+        start: firstDay.toLocaleDateString("en-CA"),
+        end: lastDay.toLocaleDateString("en-CA"),
+      };
     }
 
-    if (mode === "semester") {
-      // Kalender Akademik Indonesia:
-      // Bulan 0-5 (Jan - Jun) = Semester Genap
-      // Bulan 6-11 (Jul - Des) = Semester Ganjil
-      const year = now.getFullYear();
-      const month = now.getMonth();
-
-      if (month >= 6) {
-        setFilterStartDate(`${year}-07-01`);
-        setFilterEndDate(`${year}-12-31`);
-      } else {
-        setFilterStartDate(`${year}-01-01`);
-        setFilterEndDate(`${year}-06-30`);
-      }
+    // Semester (Jul-Des = Ganjil, Jan-Jun = Genap)
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    if (month >= 6) {
+      return { start: `${year}-07-01`, end: `${year}-12-31` };
     }
+    return { start: `${year}-01-01`, end: `${year}-06-30` };
+  };
+
+  const handleSelectPeriode = (mode: "semua" | "minggu" | "bulan" | "semester") => {
+    setPeriodeMode(mode);
+    const { start, end } = calculateDateRange(mode);
+    setFilterStartDate(start);
+    setFilterEndDate(end);
+  };
+
+  const handleSelectPeriodeIzin = (mode: "semua" | "minggu" | "bulan" | "semester") => {
+    setPeriodeIzinMode(mode);
+    const { start, end } = calculateDateRange(mode);
+    setIzinStartDate(start);
+    setIzinEndDate(end);
   };
 
   // --- LOGIKA FILTERING & BADGE IZIN ---
@@ -86,10 +92,15 @@ export default function AdminDashboard() {
     return izins.filter((i) => i.jenis === jenis && i.status === "Pending").length;
   };
 
-  const filteredIzins =
-    subTabIzin === "Semua" ? izins : izins.filter((i) => i.jenis === subTabIzin);
+  const filteredIzins = izins.filter((i) => {
+    if (subTabIzin !== "Semua" && i.jenis !== subTabIzin) return false;
+    const itemDate = new Date(i.tanggal_mulai || i.created_at).toLocaleDateString("en-CA");
+    if (izinStartDate && itemDate < izinStartDate) return false;
+    if (izinEndDate && itemDate > izinEndDate) return false;
+    return true;
+  });
 
-  // --- FILTER REKAP BERDASARKAN TANGGAL ---
+  // --- FILTER REKAP KEHADIRAN BERDASARKAN TANGGAL ---
   const filteredRekap = rekap.filter((r) => {
     const itemDate = new Date(r.waktu_absen).toLocaleDateString("en-CA");
     if (filterStartDate && itemDate < filterStartDate) return false;
@@ -97,8 +108,7 @@ export default function AdminDashboard() {
     return true;
   });
 
-  // Label Keterangan Periode Aktif untuk Judul File Export & Cetak
-  const getPeriodeLabel = () => {
+  const formatPeriodeLabel = (mode: string, start: string, end: string) => {
     const labelMap: Record<string, string> = {
       semua: "Semua Periode",
       minggu: "Rekap Mingguan",
@@ -106,111 +116,91 @@ export default function AdminDashboard() {
       semester: "Rekap Semester",
       custom: "Periode Pilihan",
     };
-    const range =
-      filterStartDate || filterEndDate
-        ? `(${filterStartDate || "Awal"} s/d ${filterEndDate || "Sekarang"})`
-        : "";
-    return `${labelMap[periodeMode]} ${range}`.trim();
+    const range = start || end ? `(${start || "Awal"} s/d ${end || "Sekarang"})` : "";
+    return `${labelMap[mode] || "Semua Periode"} ${range}`.trim();
   };
 
-  // --- FUNGSI EXPORT EXCEL (.XLS) ---
-  const handleExportExcel = () => {
-    if (filteredRekap.length === 0) {
-      Swal.fire("Data Kosong", "Tidak ada data rekap absensi pada periode ini.", "info");
-      return;
-    }
-
-    const periodeText = getPeriodeLabel();
-
-    let tableHTML = `
+  // --- HELPER DOWNLOAD EXCEL & CETAK PDF UMUM DENGAN KOP RESMI ---
+  const downloadExcelFile = (judulLaporan: string, subInfo: string, tableContentHtml: string, fileName: string) => {
+    const fullHtml = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
       <head><meta charset="utf-8" /></head>
       <body>
-        <h3>REKAPITULASI ABSENSI PEGAWAI - ${schoolName.toUpperCase()}</h3>
-        <p>${periodeText}</p>
-        <table border="1" style="border-collapse: collapse; width: 100%;">
-          <thead>
-            <tr style="background-color: #1e293b; color: #ffffff; font-weight: bold;">
-              <th>No</th>
-              <th>Nama Pegawai</th>
-              <th>NIP / NUPTK</th>
-              <th>Tanggal</th>
-              <th>Jam Masuk</th>
-              <th>Status Masuk</th>
-              <th>Jam Pulang</th>
-              <th>Status Pulang</th>
-              <th>Lokasi Masuk</th>
-            </tr>
-          </thead>
-          <tbody>
+        <table style="width:100%; border:none; margin-bottom:10px;">
+          <tr><td colspan="9" style="font-size:14pt; font-weight:bold; text-align:center;">${judulLaporan}</td></tr>
+          <tr><td colspan="9" style="font-size:13pt; font-weight:bold; text-align:center;">${schoolName.toUpperCase()}</td></tr>
+          <tr><td colspan="9" style="font-size:10pt; font-weight:bold; text-align:center;">Tahun Pelajaran ${tahunPelajaran} | Semester ${semester}</td></tr>
+          <tr><td colspan="9" style="font-size:9pt; text-align:center; color:#475569;">${subInfo}</td></tr>
+        </table>
+        <br/>
+        ${tableContentHtml}
+      </body>
+      </html>
     `;
 
-    filteredRekap.forEach((r, index) => {
-      const tanggal = new Date(r.waktu_absen).toLocaleDateString("id-ID", {
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
-      });
-      const jamMasuk = r.data_masuk
-        ? new Date(r.data_masuk.waktu_absen).toLocaleTimeString("id-ID", {
-            hour: "2-digit",
-            minute: "2-digit",
-            timeZone: "UTC",
-          })
-        : "-";
-      const statusMasuk = r.data_masuk ? r.data_masuk.status : "Belum Scan";
-      const jamPulang = r.data_pulang
-        ? new Date(r.data_pulang.waktu_absen).toLocaleTimeString("id-ID", {
-            hour: "2-digit",
-            minute: "2-digit",
-            timeZone: "UTC",
-          })
-        : "-";
-      const statusPulang = r.data_pulang ? r.data_pulang.status : "Belum Scan";
-      const lokasi = r.data_masuk?.keterangan_lokasi || r.data_pulang?.keterangan_lokasi || "-";
-
-      tableHTML += `
-        <tr>
-          <td style="text-align:center;">${index + 1}</td>
-          <td>${r.nama_lengkap || "-"}</td>
-          <td>'${r.nip || r.nuptk || "-"}</td>
-          <td style="text-align:center;">${tanggal}</td>
-          <td style="text-align:center;">${jamMasuk}</td>
-          <td style="text-align:center;">${statusMasuk}</td>
-          <td style="text-align:center;">${jamPulang}</td>
-          <td style="text-align:center;">${statusPulang}</td>
-          <td>${lokasi}</td>
-        </tr>
-      `;
-    });
-
-    tableHTML += `</tbody></table></body></html>`;
-
-    const blob = new Blob([tableHTML], { type: "application/vnd.ms-excel" });
+    const blob = new Blob([fullHtml], { type: "application/vnd.ms-excel" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Rekap_Absensi_${periodeMode.toUpperCase()}_${schoolName.replace(/\s+/g, "_")}.xls`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  // --- FUNGSI CETAK / EXPORT PDF ---
-  const handlePrintRekap = () => {
-    if (filteredRekap.length === 0) {
-      Swal.fire("Data Kosong", "Tidak ada data rekap absensi pada periode ini.", "info");
-      return;
-    }
-
+  const openPrintWindow = (judulLaporan: string, subInfo: string, tableContentHtml: string) => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
 
-    const periodeText = getPeriodeLabel();
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${judulLaporan} - ${schoolName}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #1e293b; }
+            .kop { text-align: center; border-bottom: 3px double #1e293b; padding-bottom: 12px; margin-bottom: 18px; }
+            .kop h1 { margin: 0; font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+            .kop h2 { margin: 4px 0; font-size: 15px; text-transform: uppercase; }
+            .kop p { margin: 2px 0; font-size: 12px; font-weight: bold; }
+            .sub-info { font-size: 11px; color: #475569; margin-bottom: 12px; display: flex; justify-content: space-between; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { border: 1px solid #94a3b8; padding: 7px 8px; }
+            th { background-color: #1e293b; color: white; text-transform: uppercase; font-size: 10px; }
+            .ttd { margin-top: 32px; width: 100%; display: flex; justify-content: flex-end; font-size: 11px; }
+            .ttd-box { text-align: center; width: 220px; }
+          </style>
+        </head>
+        <body>
+          <div class="kop">
+            <h1>${judulLaporan}</h1>
+            <h2>${schoolName.toUpperCase()}</h2>
+            <p>Tahun Pelajaran ${tahunPelajaran} • Semester ${semester}</p>
+          </div>
+          <div class="sub-info">
+            <span>${subInfo}</span>
+            <span>Dicetak: ${new Date().toLocaleString("id-ID")} WITA</span>
+          </div>
+          ${tableContentHtml}
+          <div class="ttd">
+            <div class="ttd-box">
+              <p>Kisol, ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}</p>
+              <p>Kepala Sekolah / Admin,</p>
+              <br/><br/><br/>
+              <p><strong>( _______________________ )</strong></p>
+            </div>
+          </div>
+          <script>window.onload = function() { window.print(); }</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
 
-    const rowsHtml = filteredRekap
-      .map((r, idx) => {
+  // --- 1. EXPORT & CETAK REKAP KEHADIRAN ---
+  const buildRekapTableHtml = () => {
+    const rows = filteredRekap
+      .map((r, index) => {
         const tanggal = new Date(r.waktu_absen).toLocaleDateString("id-ID", {
           day: "2-digit",
           month: "short",
@@ -223,6 +213,7 @@ export default function AdminDashboard() {
               timeZone: "UTC",
             })
           : "-";
+        const statusMasuk = r.data_masuk ? r.data_masuk.status : "Belum Scan";
         const jamPulang = r.data_pulang
           ? new Date(r.data_pulang.waktu_absen).toLocaleTimeString("id-ID", {
               hour: "2-digit",
@@ -230,52 +221,206 @@ export default function AdminDashboard() {
               timeZone: "UTC",
             })
           : "-";
+        const statusPulang = r.data_pulang ? r.data_pulang.status : "Belum Scan";
+        const lokasi = r.data_masuk?.keterangan_lokasi || r.data_pulang?.keterangan_lokasi || "-";
 
         return `
           <tr>
-            <td style="text-align:center;">${idx + 1}</td>
-            <td><strong>${r.nama_lengkap}</strong><br/><small>${r.nip || "-"}</small></td>
+            <td style="text-align:center;">${index + 1}</td>
+            <td>${r.nama_lengkap || "-"}</td>
+            <td>'${r.nip || r.nuptk || "-"}</td>
             <td style="text-align:center;">${tanggal}</td>
-            <td style="text-align:center;">${jamMasuk} (${r.data_masuk?.status || "-"})</td>
-            <td style="text-align:center;">${jamPulang} (${r.data_pulang?.status || "-"})</td>
+            <td style="text-align:center;">${jamMasuk}</td>
+            <td style="text-align:center;">${statusMasuk}</td>
+            <td style="text-align:center;">${jamPulang}</td>
+            <td style="text-align:center;">${statusPulang}</td>
+            <td>${lokasi}</td>
           </tr>
         `;
       })
       .join("");
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Cetak ${periodeText} - ${schoolName}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 20px; color: #1e293b; }
-            h2 { margin: 0; text-transform: uppercase; }
-            p { margin: 4px 0 16px; font-size: 12px; color: #64748b; }
-            table { width: 100%; border-collapse: collapse; font-size: 11px; }
-            th, td { border: 1px solid #cbd5e1; padding: 8px; }
-            th { background-color: #1e293b; color: white; text-transform: uppercase; }
-          </style>
-        </head>
-        <body>
-          <h2>REKAPITULASI KEHADIRAN PEGAWAI - ${schoolName}</h2>
-          <p>${periodeText} | Dicetak pada: ${new Date().toLocaleString("id-ID")}</p>
-          <table>
-            <thead>
-              <tr>
-                <th>No</th>
-                <th>Nama & NIP</th>
-                <th>Tanggal</th>
-                <th>Masuk</th>
-                <th>Pulang</th>
-              </tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-          <script>window.onload = function() { window.print(); }</script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    return `
+      <table border="1" style="border-collapse: collapse; width: 100%;">
+        <thead>
+          <tr style="background-color: #1e293b; color: #ffffff; font-weight: bold;">
+            <th>No</th>
+            <th>Nama Pegawai</th>
+            <th>NIP / NUPTK</th>
+            <th>Tanggal</th>
+            <th>Jam Masuk</th>
+            <th>Status Masuk</th>
+            <th>Jam Pulang</th>
+            <th>Status Pulang</th>
+            <th>Keterangan Lokasi</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  };
+
+  const handleExportRekapExcel = () => {
+    if (filteredRekap.length === 0) {
+      Swal.fire("Data Kosong", "Tidak ada data rekap kehadiran pada periode ini.", "info");
+      return;
+    }
+    const subInfo = formatPeriodeLabel(periodeMode, filterStartDate, filterEndDate);
+    downloadExcelFile(
+      "REKAPITULASI KEHADIRAN PEGAWAI",
+      subInfo,
+      buildRekapTableHtml(),
+      `Rekap_Kehadiran_${periodeMode.toUpperCase()}_TP_${tahunPelajaran.replace(/\//g, "-")}.xls`
+    );
+  };
+
+  const handlePrintRekap = () => {
+    if (filteredRekap.length === 0) {
+      Swal.fire("Data Kosong", "Tidak ada data rekap kehadiran pada periode ini.", "info");
+      return;
+    }
+    const subInfo = formatPeriodeLabel(periodeMode, filterStartDate, filterEndDate);
+    openPrintWindow("REKAPITULASI KEHADIRAN PEGAWAI", subInfo, buildRekapTableHtml());
+  };
+
+  // --- 2. EXPORT & CETAK LAPORAN IZIN & SAKIT ---
+  const buildIzinTableHtml = () => {
+    const rows = filteredIzins
+      .map((i, idx) => {
+        const tglPengajuan = new Date(i.created_at).toLocaleDateString("id-ID", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
+        const tglMulai = i.tanggal_mulai
+          ? new Date(i.tanggal_mulai).toLocaleDateString("id-ID", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })
+          : "-";
+        const tglSelesai = i.tanggal_selesai
+          ? new Date(i.tanggal_selesai).toLocaleDateString("id-ID", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })
+          : i.jenis === "Sakit"
+          ? "Hingga Sembuh"
+          : "-";
+
+        return `
+          <tr>
+            <td style="text-align:center;">${idx + 1}</td>
+            <td>${i.guru?.nama_lengkap || "-"}</td>
+            <td style="text-align:center;">${i.guru?.jenjang || "-"}</td>
+            <td style="text-align:center;">${i.jenis}</td>
+            <td style="text-align:center;">${tglMulai} s/d ${tglSelesai}</td>
+            <td>${i.keterangan || "-"}</td>
+            <td style="text-align:center;">${tglPengajuan}</td>
+            <td style="text-align:center; font-weight:bold;">${i.status}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    return `
+      <table border="1" style="border-collapse: collapse; width: 100%;">
+        <thead>
+          <tr style="background-color: #1e293b; color: #ffffff; font-weight: bold;">
+            <th>No</th>
+            <th>Nama Pegawai</th>
+            <th>Jenjang</th>
+            <th>Jenis Pengajuan</th>
+            <th>Rentang Tanggal</th>
+            <th>Keterangan / Alasan</th>
+            <th>Tgl Pengajuan</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  };
+
+  const handleExportIzinExcel = () => {
+    if (filteredIzins.length === 0) {
+      Swal.fire("Data Kosong", "Tidak ada data izin/sakit untuk diexport.", "info");
+      return;
+    }
+    const subInfo = `Kategori: ${subTabIzin} | ${formatPeriodeLabel(periodeIzinMode, izinStartDate, izinEndDate)}`;
+    downloadExcelFile(
+      "REKAPITULASI PENGAJUAN IZIN & SAKIT PEGAWAI",
+      subInfo,
+      buildIzinTableHtml(),
+      `Rekap_Izin_${subTabIzin.replace(/\s+/g, "_")}_TP_${tahunPelajaran.replace(/\//g, "-")}.xls`
+    );
+  };
+
+  const handlePrintIzin = () => {
+    if (filteredIzins.length === 0) {
+      Swal.fire("Data Kosong", "Tidak ada data izin/sakit untuk dicetak.", "info");
+      return;
+    }
+    const subInfo = `Kategori: ${subTabIzin} | ${formatPeriodeLabel(periodeIzinMode, izinStartDate, izinEndDate)}`;
+    openPrintWindow("REKAPITULASI PENGAJUAN IZIN & SAKIT PEGAWAI", subInfo, buildIzinTableHtml());
+  };
+
+  // --- 3. EXPORT & CETAK REKAP DATA PEGAWAI ---
+  const buildPegawaiTableHtml = () => {
+    const rows = gurus
+      .map(
+        (g, idx) => `
+        <tr>
+          <td style="text-align:center;">${idx + 1}</td>
+          <td>${g.nama_lengkap || "-"}</td>
+          <td>'${g.nip || "-"}</td>
+          <td>'${g.nuptk || "-"}</td>
+          <td style="text-align:center;">${g.jenjang || "-"}</td>
+          <td>${g.jabatan || "-"}</td>
+          <td style="text-align:center;">${g.face_descriptor || g.foto_referensi ? "Terdaftar" : "Belum"}</td>
+        </tr>
+      `
+      )
+      .join("");
+
+    return `
+      <table border="1" style="border-collapse: collapse; width: 100%;">
+        <thead>
+          <tr style="background-color: #1e293b; color: #ffffff; font-weight: bold;">
+            <th>No</th>
+            <th>Nama Lengkap</th>
+            <th>NIP</th>
+            <th>NUPTK</th>
+            <th>Jenjang</th>
+            <th>Jabatan</th>
+            <th>Status Biometrik</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  };
+
+  const handleExportPegawaiExcel = () => {
+    if (gurus.length === 0) {
+      Swal.fire("Data Kosong", "Tidak ada data pegawai untuk diexport.", "info");
+      return;
+    }
+    downloadExcelFile(
+      "DATA INDUK PEGAWAI & GURU",
+      `Total Pegawai: ${gurus.length} Orang`,
+      buildPegawaiTableHtml(),
+      `Data_Pegawai_TP_${tahunPelajaran.replace(/\//g, "-")}.xls`
+    );
+  };
+
+  const handlePrintPegawai = () => {
+    if (gurus.length === 0) {
+      Swal.fire("Data Kosong", "Tidak ada data pegawai untuk dicetak.", "info");
+      return;
+    }
+    openPrintWindow("DATA INDUK PEGAWAI & GURU", `Total Pegawai: ${gurus.length} Orang`, buildPegawaiTableHtml());
   };
 
   // --- FETCH STATS (NOTIFIKASI) ---
@@ -340,8 +485,10 @@ export default function AdminDashboard() {
       setRekap(Object.values(grouped));
 
       if (dataSetting.success && dataSetting.data) {
-        setSchoolName(dataSetting.data.nama_sekolah || "SANPIO");
+        setSchoolName(dataSetting.data.nama_sekolah || "SMAS SEMINARI PIUS XII KISOL");
         setSchoolLogo(dataSetting.data.logo_sekolah || null);
+        setTahunPelajaran(dataSetting.data.tahun_pelajaran || "-");
+        setSemester(dataSetting.data.semester || "-");
       }
 
       fetchStats();
@@ -433,10 +580,12 @@ export default function AdminDashboard() {
             )}
           </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase">
-              <span className="text-red-600">{schoolName}</span> {userRole?.replace("_", " ")}
+            <h1 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight uppercase">
+              <span className="text-red-600">{schoolName}</span> • {userRole?.replace("_", " ")}
             </h1>
-            <p className="text-slate-400 font-bold text-[10px] tracking-[0.2em] uppercase">Petugas: {userName}</p>
+            <p className="text-slate-400 font-bold text-[10px] tracking-[0.2em] uppercase">
+              Petugas: {userName} | TP {tahunPelajaran} (SEM {semester})
+            </p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -491,24 +640,36 @@ export default function AdminDashboard() {
       </nav>
 
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {/* TAB PEGAWAI */}
+        {/* TAB PEGAWAI (DENGAN EXPORT EXCEL & CETAK PDF) */}
         {activeTab === "guru" && (
           <div className="space-y-4">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
               <div>
                 <h2 className="text-sm font-black text-slate-700 uppercase tracking-widest ml-2">
                   Manajemen Data Pegawai
                 </h2>
                 <p className="text-[10px] text-slate-400 ml-2 font-bold italic">Total: {gurus.length} Orang</p>
               </div>
-              <div className="flex gap-2 w-full md:w-auto">
-                <label className="cursor-pointer bg-green-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black hover:bg-green-700 transition shadow-lg flex items-center gap-2">
+              <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                <button
+                  onClick={handleExportPegawaiExcel}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-2xl text-[10px] font-black transition shadow-lg flex items-center gap-2 uppercase"
+                >
+                  📊 EXPORT EXCEL
+                </button>
+                <button
+                  onClick={handlePrintPegawai}
+                  className="bg-slate-700 hover:bg-slate-800 text-white px-5 py-3 rounded-2xl text-[10px] font-black transition shadow-lg flex items-center gap-2 uppercase"
+                >
+                  🖨️ CETAK / PDF
+                </button>
+                <label className="cursor-pointer bg-green-600 text-white px-5 py-3 rounded-2xl text-[10px] font-black hover:bg-green-700 transition shadow-lg flex items-center gap-2">
                   📥 IMPORT EXCEL
                   <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleImportExcel} />
                 </label>
                 <button
                   onClick={() => router.push("/admin/pegawai/tambah")}
-                  className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black hover:scale-105 transition shadow-lg flex items-center gap-2"
+                  className="bg-slate-900 text-white px-5 py-3 rounded-2xl text-[10px] font-black hover:scale-105 transition shadow-lg flex items-center gap-2"
                 >
                   + TAMBAH GURU
                 </button>
@@ -530,7 +691,9 @@ export default function AdminDashboard() {
                     <tr key={g.id} className="hover:bg-slate-50 transition">
                       <td className="p-6">
                         <div className="font-black text-slate-800 uppercase text-xs">{g.nama_lengkap}</div>
-                        <div className="text-[9px] font-bold text-red-600 uppercase italic">{g.jenjang}</div>
+                        <div className="text-[9px] font-bold text-red-600 uppercase italic">
+                          {g.jenjang} {g.jabatan ? `• ${g.jabatan}` : ""}
+                        </div>
                       </td>
                       <td className="p-6 text-xs font-bold text-slate-500">
                         {g.nip || "-"} / {g.nuptk || "-"}
@@ -556,21 +719,21 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB KEHADIRAN (DENGAN PILIHAN PER MINGGU, PER BULAN, PER SEMESTER + EXPORT) */}
+        {/* TAB KEHADIRAN */}
         {activeTab === "rekap" && (
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
             <div className="p-6 bg-slate-50/50 border-b border-slate-100 space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">
-                    Rekap Absensi Pegawai ({filteredRekap.length} Data)
+                    Rekapitulasi Kehadiran Pegawai ({filteredRekap.length} Data)
                   </h3>
                   <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
-                    {getPeriodeLabel()} • Zona Waktu: WITA
+                    {formatPeriodeLabel(periodeMode, filterStartDate, filterEndDate)} • TP {tahunPelajaran} (SEM {semester})
                   </p>
                 </div>
 
-                {/* TOMBOL PRESET PERIODE: SEMUA | PER MINGGU | PER BULAN | PER SEMESTER */}
+                {/* PRESET PERIODE: SEMUA | PER MINGGU | PER BULAN | PER SEMESTER */}
                 <div className="flex flex-wrap gap-1.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
                   {[
                     { id: "semua", label: "Semua" },
@@ -593,7 +756,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* BARIS KEDUA: RENTANG TANGGAL MANUAL & TOMBOL EXPORT EXCEL / PDF */}
+              {/* RENTANG TANGGAL MANUAL & TOMBOL EXPORT */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-3 border-t border-slate-200/60">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[9px] font-black uppercase text-slate-400">Rentang Tanggal:</span>
@@ -620,7 +783,7 @@ export default function AdminDashboard() {
 
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <button
-                    onClick={handleExportExcel}
+                    onClick={handleExportRekapExcel}
                     className="flex-1 sm:flex-none justify-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
                   >
                     📊 EXPORT EXCEL
@@ -755,28 +918,67 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TAB IZIN & SAKIT */}
+        {/* TAB IZIN & SAKIT (DENGAN FILTER PERIODE & EXPORT EXCEL / CETAK PDF) */}
         {activeTab === "izin" && (
           <div className="space-y-4">
-            <div className="flex flex-wrap gap-2 mb-2">
-              {["Semua", "Izin", "Sakit", "Cuti", "Tugas Luar"].map((type) => (
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+              {/* SUB TAB JENIS IZIN */}
+              <div className="flex flex-wrap gap-2">
+                {["Semua", "Izin", "Sakit", "Cuti", "Tugas Luar"].map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setSubTabIzin(type)}
+                    className={`relative py-3 px-6 rounded-2xl text-[9px] font-black uppercase transition-all border ${
+                      subTabIzin === type
+                        ? "bg-slate-800 text-white border-slate-800 shadow-lg"
+                        : "bg-white text-slate-400 border-slate-100 hover:bg-slate-50"
+                    }`}
+                  >
+                    {type}
+                    {getPendingCountLocal(type) > 0 && (
+                      <span className="absolute -top-2 -right-2 bg-red-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-[9px] animate-bounce border-2 border-white">
+                        {getPendingCountLocal(type)}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* FILTER PERIODE & EXPORT IZIN */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex gap-1 bg-white p-1 rounded-xl border border-slate-200">
+                  {[
+                    { id: "semua", label: "Semua" },
+                    { id: "minggu", label: "Minggu" },
+                    { id: "bulan", label: "Bulan" },
+                    { id: "semester", label: "Semester" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => handleSelectPeriodeIzin(item.id as any)}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition ${
+                        periodeIzinMode === item.id ? "bg-red-600 text-white" : "text-slate-500 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
                 <button
-                  key={type}
-                  onClick={() => setSubTabIzin(type)}
-                  className={`relative py-3 px-6 rounded-2xl text-[9px] font-black uppercase transition-all border ${
-                    subTabIzin === type
-                      ? "bg-slate-800 text-white border-slate-800 shadow-lg"
-                      : "bg-white text-slate-400 border-slate-100 hover:bg-slate-50"
-                  }`}
+                  onClick={handleExportIzinExcel}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
                 >
-                  {type}
-                  {getPendingCountLocal(type) > 0 && (
-                    <span className="absolute -top-2 -right-2 bg-red-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-[9px] animate-bounce border-2 border-white">
-                      {getPendingCountLocal(type)}
-                    </span>
-                  )}
+                  📊 EXPORT EXCEL
                 </button>
-              ))}
+
+                <button
+                  onClick={handlePrintIzin}
+                  className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition active:scale-95 flex items-center gap-1.5"
+                >
+                  🖨️ CETAK / PDF
+                </button>
+              </div>
             </div>
 
             <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
